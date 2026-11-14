@@ -1,0 +1,56 @@
+// Lưu trữ trên máy bằng IndexedDB — không có máy chủ.
+const DB_NAME = 'chitieu';
+const VERSION = 1;
+let dbPromise = null;
+
+function open() {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, VERSION);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        d.createObjectStore('tx', { keyPath: 'id' });
+        d.createObjectStore('cats', { keyPath: 'id' });
+        d.createObjectStore('imports', { keyPath: 'id' });
+        d.createObjectStore('kv', { keyPath: 'k' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return dbPromise;
+}
+
+function run(store, mode, fn) {
+  return open().then(d => new Promise((resolve, reject) => {
+    const t = d.transaction(store, mode);
+    const req = fn(t.objectStore(store));
+    t.oncomplete = () => resolve(req && typeof req === 'object' && 'readyState' in req ? req.result : undefined);
+    t.onerror = t.onabort = () => reject(t.error);
+  }));
+}
+
+export const getAll = store => run(store, 'readonly', s => s.getAll());
+export const put = (store, item) => run(store, 'readwrite', s => { s.put(item); });
+export const putMany = (store, items) => run(store, 'readwrite', s => { for (const i of items) s.put(i); });
+export const remove = (store, key) => run(store, 'readwrite', s => { s.delete(key); });
+export const removeMany = (store, keys) => run(store, 'readwrite', s => { for (const k of keys) s.delete(k); });
+export const clear = store => run(store, 'readwrite', s => { s.clear(); });
+
+export async function getKV(k, fallback) {
+  const r = await run('kv', 'readonly', s => s.get(k));
+  return r === undefined ? fallback : r.v;
+}
+export const setKV = (k, v) => put('kv', { k, v });
+
+// Xóa sạch: cơ sở dữ liệu, bộ nhớ đệm, localStorage.
+export async function wipeEverything() {
+  try { const d = await open(); d.close(); } catch (e) { /* ignore */ }
+  dbPromise = null;
+  await new Promise(res => {
+    const r = indexedDB.deleteDatabase(DB_NAME);
+    r.onsuccess = r.onerror = r.onblocked = () => res();
+  });
+  try { if (window.caches) for (const k of await caches.keys()) if (k.startsWith('shared')) await caches.delete(k); } catch (e) { /* ignore */ }
+  try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* ignore */ }
+}
