@@ -6,8 +6,8 @@
     var m = navigator.userAgent.match(/OS (\d+)_(\d+)/);
     return m ? 'iOS ' + m[1] + '.' + m[2] : '';
   }
-  function show(reason) {
-    if (window.__started) return;
+  function show(reason, force) {
+    if (window.__started && !force) return;
     var box = document.getElementById('boot') || document.getElementById('view');
     if (!box) return;
     document.body.className = '';
@@ -44,7 +44,7 @@
     errors.push('promise: ' + (e.reason && (e.reason.message || e.reason)));
     if (!window.__started) show('');
   });
-  window.__bootFail = function (err) { errors.push('start: ' + (err && (err.message || err))); show(''); };
+  window.__bootFail = function (err) { errors.push('start: ' + (err && (err.message || err))); show('', true); };
   // Không khởi động được sau 8 giây → hiện thông tin
   setTimeout(function () { if (!window.__started) show('timeout 8s'); }, 8000);
   // Trình duyệt quá cũ, không chạy được module

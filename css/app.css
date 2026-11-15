@@ -88,7 +88,9 @@ body.privacy-blur .view { filter: blur(18px); }
 .row-between h3 { margin: 0; }
 
 /* Khởi động / lỗi khởi động */
-.boot { display: grid; place-items: center; min-height: 60vh; }
+.boot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 60vh; text-align: center; }
+.boot-msg { color: var(--ink-2); margin: 0; }
+.boot-msg a { color: var(--accent); }
 .boot-spin { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .boot-err { text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; width: 100%; }

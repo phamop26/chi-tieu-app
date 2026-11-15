@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiểm tra app</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px 16px 40px; background: #fff; color: #111; font-size: 16px; }
+  @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } .box { background: #222 !important; } }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .box { background: #f2f2f2; border-radius: 12px; padding: 12px; font-size: 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 999px; padding: 12px 18px; margin: 10px 0 0; width: 100%; background: #17675a; color: #fff; }
+  button.alt { background: transparent; color: #17675a; border: 1px solid #17675a; }
+</style>
+</head>
+<body>
+<h1>🔎 Kiểm tra app Chi Tiêu</h1>
+<p>Nếu bạn đọc được dòng này: trang tải được. Đợi khoảng 10 giây rồi chụp màn hình toàn bộ trang.</p>
+<div class="box" id="out">JavaScript: ❌ chưa chạy (nếu dòng này không đổi sau vài giây → JavaScript đang bị tắt hoặc bị chặn)</div>
+<button id="reset">Xóa bộ nhớ đệm của app rồi mở lại (giữ dữ liệu)</button>
+<button class="alt" onclick="location.href='./?fresh=' + Date.now()">Mở app</button>
+
+<script>
+(function () {
+  var out = document.getElementById('out');
+  var lines = [];
+  function log(s) { lines.push(s); out.textContent = lines.join('\n'); }
+  window.__diagLog = log;
+  log('Phiên bản trang kiểm tra: 3');
+  log('JavaScript: ✅ chạy được');
+  var ua = navigator.userAgent;
+  var ios = ua.match(/OS (\d+)_(\d+)/);
+  log('Hệ điều hành: ' + (ios ? 'iOS ' + ios[1] + '.' + ios[2] : ua.slice(0, 80)));
+  log('Trình duyệt: ' + (/CriOS/.test(ua) ? 'Chrome' : /FxiOS/.test(ua) ? 'Firefox' : /Zalo/i.test(ua) ? 'Zalo (trình duyệt trong Zalo)' : /FBAN|FBAV/.test(ua) ? 'Facebook' : /Safari/.test(ua) ? 'Safari' : 'khác'));
+  log('Mở từ màn hình chính: ' + (navigator.standalone ? 'có' : 'không'));
+  log('Hỗ trợ module: ' + ('noModule' in document.createElement('script') ? '✅' : '❌'));
+  try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); log('localStorage: ✅'); } catch (e) { log('localStorage: ❌ ' + e.message); }
+
+  // IndexedDB
+  if (!window.indexedDB) log('IndexedDB: ❌ không có');
+  else {
+    var t0 = Date.now(), done = false;
+    var to = setTimeout(function () { if (!done) log('IndexedDB: ❌ treo quá 8 giây'); }, 8000);
+    try {
+      var r = indexedDB.open('diag-test', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('x'); };
+      r.onsuccess = function () { done = true; clearTimeout(to); log('IndexedDB: ✅ mở được sau ' + (Date.now() - t0) + 'ms'); r.result.close(); indexedDB.deleteDatabase('diag-test'); };
+      r.onerror = function () { done = true; clearTimeout(to); log('IndexedDB: ❌ lỗi ' + (r.error && r.error.name)); };
+    } catch (e) { log('IndexedDB: ❌ ' + e.message); }
+  }
+
+  // Service worker + bộ nhớ đệm
+  if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+    navigator.serviceWorker.getRegistrations().then(function (rs) { log('Service worker đã cài: ' + rs.length); });
+  } else log('Service worker: không hỗ trợ');
+  if (window.caches) caches.keys().then(function (k) { log('Bộ nhớ đệm: ' + (k.join(', ') || '(trống)')); });
+
+  // Bản trên máy chủ
+  fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
+    var m = t.match(/data-build="([^"]+)"/);
+    log('Bản trên máy chủ: ' + (m ? m[1] : 'cũ (chưa có số bản)'));
+  }, function (e) { log('Tải index.html: ❌ ' + e.message); });
+
+  document.getElementById('reset').onclick = function () {
+    var jobs = [];
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (x) { return x.unregister(); })); }));
+    if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }));
+    Promise.all(jobs).then(go, go);
+    function go() { location.href = './?fresh=' + Date.now(); }
+  };
+  window.addEventListener('error', function (e) { log('Lỗi: ' + e.message + (e.filename ? ' @' + e.filename.split('/').pop() + ':' + e.lineno : '')); });
+})();
+</script>
+<script type="module">
+  const log = window.__diagLog;
+  log('Module: ✅ chạy được');
+  const files = ['i18n', 'db', 'parse', 'classify', 'insights', 'lock', 'sample'];
+  for (const f of files) {
+    try { await import('./js/' + f + '.js?d=' + Date.now()); log('  js/' + f + '.js: ✅'); }
+    catch (e) { log('  js/' + f + '.js: ❌ ' + (e && e.message)); }
+  }
+</script>
+</body>
+</html>
