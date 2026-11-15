@@ -2,7 +2,7 @@
 // Mọi số liệu do người dùng nhập tay và chỉ lưu trên máy.
 import './i18n-fin.js';
 import { t, locale } from './i18n.js';
-import { parseAmount } from './parse.js';
+import { parseAmount, parseMoneyInput } from './parse.js';
 
 const pad = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -40,15 +40,135 @@ export function initFinance(ctx) {
   }
   const signedValue = a => (DEBT.includes(a.type) ? -(a.balance || 0) : (a.balance || 0));
 
+  // ---------- Ngoại tệ: tài khoản USD/EUR quy ra VND (xấp xỉ) ----------
+  const DEFAULT_FX = { USD: 25700, EUR: 28400 };
+  const fx = () => ({ VND: 1, ...DEFAULT_FX, ...((S.settings.fx || {}).rates || {}) });
+  const curOf = a => a.currency || 'VND';
+  const toVnd = (v, cur) => (v || 0) * (fx()[cur || 'VND'] || 1);
+  const vnd = a => toVnd(a.balance, curOf(a));
+  function moneyIn(v, cur) {
+    if (!cur || cur === 'VND') return money(v);
+    return new Intl.NumberFormat(locale(), { style: 'currency', currency: cur, maximumFractionDigits: 2 }).format(v);
+  }
+  const amtHtml = (v, cur) => (cur && cur !== 'VND' ? `${esc(moneyIn(v, cur))}<small class="muted">≈ ${esc(money(toVnd(v, cur)))}</small>` : esc(money(v)));
+  const hasForeign = () => S.accounts.some(a => curOf(a) !== 'VND');
+  // Chỉ hỏi tỷ giá khi có tài khoản ngoại tệ, tối đa 1 lần/ngày; chỉ gửi yêu cầu "USD = ? VND", không kèm dữ liệu nào
+  async function refreshRates(force = false) {
+    const st = S.settings.fx || {};
+    if (!force && (!hasForeign() || st.auto === false)) return;
+    if (!force && st.at && Date.now() - new Date(st.at).getTime() < 20 * 3600e3) return;
+    try {
+      const r = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' });
+      const d = await r.json();
+      if (d.result !== 'success' || !d.rates || !d.rates.VND || !d.rates.EUR) throw new Error('bad response');
+      S.settings.fx = { ...st, rates: { USD: Math.round(d.rates.VND), EUR: Math.round(d.rates.VND / d.rates.EUR) }, at: new Date().toISOString() };
+      await db.setKV('settings', S.settings);
+      if (S.tab === 'finance') render();
+    } catch (e) { if (force) toast(t('fRatesFail')); }
+  }
+  function fxLine() {
+    const st = S.settings.fx || {}, r = fx();
+    const when = st.at ? ' · ' + t('fRatesUpdated', { d: shortDate(new Date(st.at)) }) : '';
+    return `💱 ${t('fRateLine', { c: 'USD', v: money(r.USD) })} · ${t('fRateLine', { c: 'EUR', v: money(r.EUR) })}${when}`;
+  }
+  function openFx() {
+    const r = fx(), st = S.settings.fx || {};
+    openSheet(`<h3>💱 ${esc(t('fRates'))}</h3><p class="muted small">${esc(t('fRatesNote'))}</p>
+      ${moneyField('fx-usd', '1 USD = … VND', r.USD)}${moneyField('fx-eur', '1 EUR = … VND', r.EUR)}
+      <label class="set-row"><span>${esc(t('fRatesAuto'))}</span><input type="checkbox" class="switch" id="fx-auto" ${st.auto === false ? '' : 'checked'}></label>
+      <div class="row-gap"><button class="btn ghost" data-act="fin-fx-refresh">↻</button><button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button><button class="btn primary" data-act="fin-fx-save">${esc(t('save'))}</button></div>`);
+  }
+  async function saveFx() {
+    const usd = readMoney('fx-usd'), eur = readMoney('fx-eur');
+    const st = S.settings.fx || {};
+    S.settings.fx = { ...st, rates: { USD: usd || fx().USD, EUR: eur || fx().EUR }, auto: document.getElementById('fx-auto').checked, at: st.at || new Date().toISOString() };
+    await db.setKV('settings', S.settings);
+    toast(t('fRatesSaved')); closeSheet(); render();
+  }
+
+  // ---------- Nợ bạn bè / chia bill (lưu trong máy: kv "ious") ----------
+  const openIous = () => (S.ious || []).filter(o => !o.settled);
+  const saveIous = () => db.setKV('ious', S.ious || []);
+  function iouSection() {
+    const list = openIous().sort((a, b) => a.date.localeCompare(b.date));
+    const sumIn = list.filter(o => o.dir === 'in').reduce((s, o) => s + o.amount, 0);
+    const sumOut = list.filter(o => o.dir === 'out').reduce((s, o) => s + o.amount, 0);
+    const today = startOfToday();
+    return `<div class="row-between sec-row"><h4 class="sec-title">${esc(t('iouSec'))}</h4>
+        <span class="row-gap tight"><button class="btn small ghost" data-act="iou-split">🧾 ${esc(t('iouSplit'))}</button><button class="btn small ghost" data-act="iou-add">＋ ${esc(t('iouAdd'))}</button></span></div>
+      <ul class="list card">${list.length ? list.map(o => {
+        const days = daysBetween(parseYmd(o.date), today);
+        return `<li class="fin-item"><button class="li" data-act="iou-edit" data-id="${esc(o.id)}">
+          <span class="li-icon">${o.dir === 'in' ? '🫴' : '🤲'}</span>
+          <span class="li-main"><b>${esc(o.dir === 'in' ? t('iouDirIn', { p: o.person }) : t('iouDirOut', { p: o.person }))}</b><small class="muted">${esc([o.note, shortDate(parseYmd(o.date))].filter(Boolean).join(' · '))}${days > 14 ? ` · <span class="pill">${days}d</span>` : ''}</small></span>
+          <span class="li-amt ${o.dir === 'in' ? 'in' : ''}">${esc(money(o.amount))}</span></button>
+          <button class="btn small ghost paid-btn" data-act="iou-settle" data-id="${esc(o.id)}">✓</button></li>`;
+      }).join('') + `<li class="iou-total muted small">${esc(t('iouTotals', { i: money(sumIn), o: money(sumOut) }))}</li>` : `<li class="li muted">${esc(t('iouEmpty'))}</li>`}</ul>`;
+  }
+  function openIou(o) {
+    o = o || { dir: 'in', person: '', amount: 0, note: '', date: ymd(new Date()) };
+    openSheet(`<h3>🤝 ${esc(t('iouAdd'))}</h3>
+      <div class="seg wide"><button class="${o.dir === 'in' ? 'on' : ''}" data-act="iou-dir" data-d="in">${esc(t('iouOwesMe'))}</button><button class="${o.dir === 'out' ? 'on' : ''}" data-act="iou-dir" data-d="out">${esc(t('iouIOwe'))}</button></div>
+      <label class="field">${esc(t('iouPerson'))}<input id="iou-person" maxlength="40" autocomplete="off" value="${esc(o.person)}"></label>
+      ${moneyField('iou-amount', t('mAmount'), o.amount)}
+      <label class="field">${esc(t('iouNote'))}<input id="iou-note" maxlength="60" value="${esc(o.note || '')}"></label>
+      <label class="field">${esc(t('mDate'))}<input id="iou-date" type="date" value="${esc(o.date)}"></label>
+      <div class="row-gap">${o.id ? `<button class="btn danger" data-act="iou-del" data-id="${esc(o.id)}">${esc(t('delete'))}</button>` : ''}
+        <button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button><button class="btn primary" data-act="iou-save" data-id="${esc(o.id || '')}">${esc(t('save'))}</button></div>`);
+    S._iouDir = o.dir;
+    if (!o.id) setTimeout(() => document.getElementById('iou-person')?.focus(), 250);
+  }
+  async function saveIou(id) {
+    const person = document.getElementById('iou-person').value.trim();
+    const amount = readMoney('iou-amount');
+    if (!person) { document.getElementById('iou-person').focus(); return; }
+    if (!amount) { document.getElementById('iou-amount').focus(); return; }
+    S.ious = S.ious || [];
+    let o = id && S.ious.find(x => x.id === id);
+    if (!o) { o = { id: 'i_' + Date.now().toString(36) }; S.ious.push(o); }
+    Object.assign(o, { person, amount, dir: S._iouDir || 'in', note: document.getElementById('iou-note').value.trim(), date: document.getElementById('iou-date').value || ymd(new Date()), settled: false });
+    await saveIous(); closeSheet(); render();
+  }
+  function openSplit() {
+    openSheet(`<h3>🧾 ${esc(t('iouSplit'))}</h3>
+      ${moneyField('sp-total', t('splitTotal'), '')}
+      <label class="field">${esc(t('splitPeople'))}<input id="sp-people" autocomplete="off" placeholder="Lan, Minh, Tuấn"></label>
+      <label class="field">${esc(t('iouNote'))}<input id="sp-note" maxlength="60"></label>
+      <p class="note" id="sp-preview"></p>
+      <div class="row-gap"><button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button><button class="btn primary" data-act="iou-split-save">${esc(t('save'))}</button></div>`);
+    const upd = () => {
+      const tot = readMoney('sp-total');
+      const ppl = document.getElementById('sp-people').value.split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
+      const el = document.getElementById('sp-preview');
+      el.textContent = tot && ppl.length ? t('splitEach', { a: money(Math.round(tot / (ppl.length + 1))), n: ppl.length }) : '';
+      el.hidden = !el.textContent;
+    };
+    document.getElementById('sp-total').addEventListener('input', upd);
+    document.getElementById('sp-people').addEventListener('input', upd);
+    upd();
+  }
+  async function saveSplit() {
+    const tot = readMoney('sp-total');
+    const ppl = document.getElementById('sp-people').value.split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
+    if (!tot || !ppl.length) return;
+    const each = Math.round(tot / (ppl.length + 1));
+    const note = document.getElementById('sp-note').value.trim() || t('splitNote', { n: ppl.length + 1 });
+    S.ious = S.ious || [];
+    ppl.forEach((person, i) => S.ious.push({ id: 'i_' + Date.now().toString(36) + i, person, amount: each, dir: 'in', note, date: ymd(new Date()), settled: false }));
+    await saveIous(); closeSheet(); render(); toast(t('splitDone', { n: ppl.length }));
+  }
+
   function totals() {
     let assets = 0, debts = 0;
-    for (const a of S.accounts) { if (DEBT.includes(a.type)) debts += a.balance || 0; else assets += a.balance || 0; }
+    for (const a of S.accounts) { if (DEBT.includes(a.type)) debts += vnd(a); else assets += vnd(a); }
+    for (const o of openIous()) { if (o.dir === 'in') assets += o.amount; else debts += o.amount; }
     return { assets, debts, net: assets - debts };
   }
   function valueAt(a, dateStr) {
     let v = null;
     for (const h of a.history || []) if (h.d <= dateStr) v = h.v;
     if (v === null) return 0;
+    v = toVnd(v, curOf(a));
     return DEBT.includes(a.type) ? -v : v;
   }
   function netWorthMonths(n = 6) {
@@ -64,7 +184,7 @@ export function initFinance(ctx) {
     return res;
   }
 
-  function goalCurrent(g) { const a = g.link && accById(g.link); return a ? (a.balance || 0) : (g.saved || 0); }
+  function goalCurrent(g) { const a = g.link && accById(g.link); return a ? vnd(a) : (g.saved || 0); }
   function goalPlan(g) {
     const cur = goalCurrent(g);
     const now = new Date();
@@ -97,9 +217,9 @@ export function initFinance(ctx) {
       if (DEBT.includes(a.type) && (a.balance || 0) > 0) {
         const d = debtDue(a);
         if (!d) continue;
-        if (d.overdue) items.push({ k: -100 + d.days, icon: '⚠️', text: t('fOverdue', { name: a.name, d: d.days, a: money(a.balance) }), urgent: true });
-        else if (d.days === 0) items.push({ k: 0, icon: '⏰', text: t('fDueToday', { name: a.name, a: money(a.balance) }), urgent: true });
-        else if (d.days <= 10) items.push({ k: d.days, icon: accIcon(a), text: t('fDueIn', { name: a.name, a: money(a.balance), date: shortDate(d.date), d: d.days }) });
+        if (d.overdue) items.push({ k: -100 + d.days, icon: '⚠️', text: t('fOverdue', { name: a.name, d: d.days, a: moneyIn(a.balance, curOf(a)) }), urgent: true });
+        else if (d.days === 0) items.push({ k: 0, icon: '⏰', text: t('fDueToday', { name: a.name, a: moneyIn(a.balance, curOf(a)) }), urgent: true });
+        else if (d.days <= 10) items.push({ k: d.days, icon: accIcon(a), text: t('fDueIn', { name: a.name, a: moneyIn(a.balance, curOf(a)), date: shortDate(d.date), d: d.days }) });
       }
       if (a.type === 'savings' && a.maturity) {
         const days = daysBetween(today, parseYmd(a.maturity));
@@ -109,6 +229,10 @@ export function initFinance(ctx) {
     for (const g of S.goals) {
       const p = goalPlan(g);
       if (!p.done && p.perMonth > 0) items.push({ k: 50, icon: '🎯', text: t('fGoalNeed', { name: g.name, a: money(p.perMonth) }) });
+    }
+    for (const o of openIous()) {
+      const days = daysBetween(parseYmd(o.date), today);
+      if (o.dir === 'in' && days >= 14) items.push({ k: 60, icon: '🤝', text: t('iouRemind', { p: o.person, a: money(o.amount), d: days }) });
     }
     return items.sort((a, b) => a.k - b.k);
   }
@@ -139,12 +263,12 @@ export function initFinance(ctx) {
       sub = [a.rate ? `${new Intl.NumberFormat(locale()).format(a.rate)}%/${t('perYear').replace('/', '')}` : '', a.maturity ? shortDate(parseYmd(a.maturity)) : ''].filter(Boolean).join(' · ');
     } else if (a.type === 'invest') {
       const pl = (a.balance || 0) - (a.invested || 0);
-      sub = `${t('fKind_' + (a.kind || 'other'))}` + (a.invested ? ' · ' + t('fPL', { a: (pl >= 0 ? '+' : '−') + money(Math.abs(pl)), p: pct(a.invested ? pl / a.invested : 0) }) : '');
+      sub = `${t('fKind_' + (a.kind || 'other'))}` + (a.invested ? ' · ' + t('fPL', { a: (pl >= 0 ? '+' : '−') + moneyIn(Math.abs(pl), curOf(a)), p: pct(a.invested ? pl / a.invested : 0) }) : '');
     }
     return `<li class="fin-item"><button class="li" data-act="fin-edit" data-id="${esc(a.id)}">
       <span class="li-icon">${accIcon(a)}</span>
       <span class="li-main"><b>${esc(a.name)}</b><small class="muted">${esc(sub)}${updatedNote(a, !!sub)}</small>${extra}</span>
-      <span class="li-amt">${esc(money(a.balance || 0))}</span></button>
+      <span class="li-amt">${amtHtml(a.balance || 0, curOf(a))}</span></button>
       ${DEBT.includes(a.type) && (a.balance || 0) > 0 ? `<button class="btn small primary paid-btn" data-act="fin-paid" data-id="${esc(a.id)}">${esc(t('fPaid'))}</button>` : ''}</li>`;
   }
 
@@ -167,11 +291,11 @@ export function initFinance(ctx) {
     const tot = totals();
     const hist = netWorthMonths(6);
     const prev = hist.length >= 2 ? hist[hist.length - 2].v : null;
-    const empty = !S.accounts.length && !S.goals.length;
+    const empty = !S.accounts.length && !S.goals.length && !openIous().length;
     const by = type => S.accounts.filter(a => a.type === type);
     return `
     <header class="top"><span class="brand">${esc(t('tabFinance'))}</span><button class="btn small primary" data-act="fin-add">＋ ${esc(t('fAdd'))}</button></header>
-    ${empty ? `<section class="welcome"><div class="welcome-art">🧭</div><p>${esc(t('fEmpty'))}</p><button class="btn primary big" data-act="fin-add">＋ ${esc(t('fAdd'))}</button></section>` : `
+    ${empty ? `<section class="welcome"><div class="welcome-art">🧭</div><p>${esc(t('fEmpty'))}</p><button class="btn primary big" data-act="fin-add">＋ ${esc(t('fAdd'))}</button><button class="btn ghost" data-act="iou-split">🧾 ${esc(t('iouSplit'))}</button></section>` : `
     <section class="hero card">
       <div class="hero-label">${esc(t('fNetWorth'))}</div>
       <div class="hero-value">${esc(money(tot.net))}</div>
@@ -181,6 +305,7 @@ export function initFinance(ctx) {
         <div><span class="muted">${esc(t('fDebts'))}</span><b>${esc(money(tot.debts))}</b></div>
       </div>
     </section>
+    ${hasForeign() ? `<button class="fx-line" data-act="fin-fx">${esc(fxLine())} ✏️</button>` : ''}
     <div class="row-gap left">
       <button class="btn small" data-act="fin-update-all">✏️ ${esc(t('fUpdateAll'))}</button>
       <button class="btn small" data-act="fin-cal">📅 ${esc(t('fAddCal'))}</button>
@@ -192,6 +317,7 @@ export function initFinance(ctx) {
     ${section(t('fInvestSec'), by('invest').map(itemHtml))}
     ${by('invest').length ? `<p class="muted small">${esc(t('fNoAdvice'))}</p>` : ''}
     ${section(t('fBankSec'), by('bank').map(itemHtml))}
+    ${iouSection()}
     ${hist.length >= 2 ? `<details class="card table-view"><summary>${esc(t('fNwHistory'))}</summary><table><tbody>${hist.map((h, i) => `<tr><td>${esc(ctx.monthLabel(h.ym))}</td><td class="num">${esc(money(h.v))}</td><td class="num muted">${i ? esc((h.v - hist[i - 1].v >= 0 ? '+' : '−') + money(Math.abs(h.v - hist[i - 1].v))) : ''}</td></tr>`).join('')}</tbody></table></details>` : ''}
     `}`;
   }
@@ -199,7 +325,7 @@ export function initFinance(ctx) {
   // ---------- Form ----------
   const numStr = v => (v || v === 0 ? new Intl.NumberFormat(locale(), { maximumFractionDigits: 2 }).format(v) : '');
   const moneyField = (id, label, v) => `<label class="field">${esc(label)}<input id="${id}" inputmode="decimal" autocomplete="off" value="${esc(numStr(v))}"></label>`;
-  const readMoney = id => { const v = parseAmount(document.getElementById(id)?.value || ''); return isNaN(v) ? 0 : Math.abs(v); };
+  const readMoney = id => { const v = parseMoneyInput(document.getElementById(id)?.value || ''); return isNaN(v) ? 0 : Math.abs(v); };
 
   function openAdd() {
     openSheet(`<h3>${esc(t('fAddWhat'))}</h3><div class="type-grid">${TYPES.map(ty => `<button class="type-btn" data-act="fin-new" data-type="${ty}"><span>${ty === 'goal' ? '🎯' : accIcon({ type: ty, kind: 'other' })}</span>${esc(t('fType_' + ty))}</button>`).join('')}</div>
@@ -210,6 +336,7 @@ export function initFinance(ctx) {
     a = a || { type, name: type === 'paylater' ? 'SPayLater' : '', kind: 'crypto' };
     const isDebt = DEBT.includes(type);
     let fields = `<label class="field">${esc(t('fName'))}<input id="ff-name" maxlength="40" value="${esc(a.name)}"></label>`;
+    fields += `<label class="field">${esc(t('fCurrency'))}<select id="ff-cur">${['VND', 'USD', 'EUR'].map(c => `<option ${curOf(a) === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>`;
     if (type === 'invest') {
       fields += `<label class="field">${esc(t('fKind'))}<select id="ff-kind">${Object.keys(KIND_ICON).map(k => `<option value="${k}" ${a.kind === k ? 'selected' : ''}>${KIND_ICON[k]} ${esc(t('fKind_' + k))}</option>`).join('')}</select></label>`;
       fields += moneyField('ff-invested', t('fInvested'), a.invested) + moneyField('ff-balance', t('fValue'), a.balance);
@@ -236,6 +363,7 @@ export function initFinance(ctx) {
     const isNew = !a;
     if (isNew) { a = { id: 'a_' + Date.now().toString(36), type, history: [] }; S.accounts.push(a); }
     a.name = name;
+    a.currency = document.getElementById('ff-cur').value || 'VND';
     if (type === 'invest') { a.kind = document.getElementById('ff-kind').value; a.invested = readMoney('ff-invested'); }
     if (type === 'credit') a.limit = readMoney('ff-limit');
     if (DEBT.includes(type)) {
@@ -251,6 +379,7 @@ export function initFinance(ctx) {
     if (isNew || bal !== a.balance) setBalance(a, bal);
     await saveAcc(a);
     closeSheet(); render();
+    if (a.currency !== 'VND') refreshRates();
   }
 
   function openGoalForm(g) {
@@ -283,7 +412,7 @@ export function initFinance(ctx) {
   function openUpdateAll() {
     if (!S.accounts.length) return openAdd();
     openSheet(`<h3>✏️ ${esc(t('fUpdateAll'))}</h3><p class="muted small">${esc(t('fUpdateAllHint'))}</p>
-      ${S.accounts.map(a => moneyField('fu-' + a.id, `${accIcon(a)} ${a.name} — ${DEBT.includes(a.type) ? t('fOwed') : a.type === 'invest' ? t('fValue') : t('fBalance')}`, a.balance)).join('')}
+      ${S.accounts.map(a => moneyField('fu-' + a.id, `${accIcon(a)} ${a.name}${curOf(a) !== 'VND' ? ' (' + curOf(a) + ')' : ''} — ${DEBT.includes(a.type) ? t('fOwed') : a.type === 'invest' ? t('fValue') : t('fBalance')}`, a.balance)).join('')}
       <div class="row-gap"><button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button><button class="btn primary" data-act="fin-update-save">${esc(t('save'))}</button></div>`);
   }
   async function saveUpdateAll() {
@@ -402,6 +531,17 @@ export function initFinance(ctx) {
     'fin-paid': (el, e) => { e.stopPropagation(); const a = accById(el.dataset.id); if (a) openPaid(a); },
     'fin-paid-save': el => savePaid(accById(el.dataset.id)),
     'fin-cal': openCal,
+    'iou-add': () => openIou(),
+    'iou-edit': el => openIou((S.ious || []).find(o => o.id === el.dataset.id)),
+    'iou-dir': el => { S._iouDir = el.dataset.d; document.querySelectorAll('[data-act="iou-dir"]').forEach(b => b.classList.toggle('on', b === el)); },
+    'iou-save': el => saveIou(el.dataset.id),
+    'iou-del': async el => { S.ious = (S.ious || []).filter(o => o.id !== el.dataset.id); await saveIous(); closeSheet(); render(); },
+    'iou-settle': async (el, e) => { e.stopPropagation(); const o = (S.ious || []).find(x => x.id === el.dataset.id); if (o) { o.settled = true; o.settledAt = ymd(new Date()); await saveIous(); render(); toast(t('iouMarkedPaid')); } },
+    'iou-split': openSplit,
+    'iou-split-save': saveSplit,
+    'fin-fx': openFx,
+    'fin-fx-save': saveFx,
+    'fin-fx-refresh': async () => { await refreshRates(true); closeSheet(); render(); },
     'fin-cal-make': makeCal,
   };
 
@@ -417,5 +557,5 @@ export function initFinance(ctx) {
   }
   actions['fin-pick-acc'] = el => closeSheet(el.dataset.id ? accById(el.dataset.id) : null);
 
-  return { view, upcomingCard, actions, chooseAccount, isDebt: a => !!a && DEBT.includes(a.type), icsText };
+  return { view, upcomingCard, actions, chooseAccount, isDebt: a => !!a && DEBT.includes(a.type), icsText, refreshRates, totals };
 }

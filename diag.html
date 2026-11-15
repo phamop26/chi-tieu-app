@@ -27,7 +27,7 @@
   var lines = [];
   function log(s) { lines.push(s); out.textContent = lines.join('\n'); }
   window.__diagLog = log;
-  log('Phiên bản trang kiểm tra: 3');
+  log('Phiên bản trang kiểm tra: 4');
   log('JavaScript: ✅ chạy được');
   var ua = navigator.userAgent;
   var ios = ua.match(/OS (\d+)_(\d+)/);
@@ -36,6 +36,11 @@
   log('Mở từ màn hình chính: ' + (navigator.standalone ? 'có' : 'không'));
   log('Hỗ trợ module: ' + ('noModule' in document.createElement('script') ? '✅' : '❌'));
   try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); log('localStorage: ✅'); } catch (e) { log('localStorage: ❌ ' + e.message); }
+
+  // Face ID (WebAuthn)
+  if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
+    PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(function (ok) { log('Face ID / vân tay cho web: ' + (ok ? '✅ có' : '❌ không')); }, function () { log('Face ID / vân tay cho web: ❌ lỗi'); });
+  } else log('Face ID / vân tay cho web: ❌ trình duyệt không hỗ trợ');
 
   // IndexedDB
   if (!window.indexedDB) log('IndexedDB: ❌ không có');

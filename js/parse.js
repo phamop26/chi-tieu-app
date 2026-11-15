@@ -18,6 +18,8 @@ function loadScript(src, globalName) {
   });
 }
 
+export const loadXLSX = () => loadScript(LIBS.xlsx, 'XLSX');
+
 // ---------- Chuẩn hóa chữ ----------
 export function norm(s) {
   return String(s ?? '')
@@ -67,6 +69,18 @@ export function parseAmount(v) {
   }
   const n = parseFloat(s);
   return isNaN(n) ? NaN : (neg ? -n : n);
+}
+
+
+// Ô nhập tiền do người dùng gõ: hiểu "500k", "1.5tr", "2 triệu", "3m" (k = nghìn, tr/triệu/m = triệu)
+export function parseMoneyInput(str) {
+  const raw = String(str || '').trim().toLowerCase().replace(/\s+/g, '');
+  const m = raw.match(/^([\d.,]+)(k|nghin|nghìn|tr|trieu|triệu|m|ty|tỷ)?$/);
+  if (!m) return parseAmount(raw);
+  const mul = { k: 1e3, nghin: 1e3, 'nghìn': 1e3, tr: 1e6, trieu: 1e6, 'triệu': 1e6, m: 1e6, ty: 1e9, 'tỷ': 1e9 }[m[2]] || 1;
+  // "1.5tr" / "1,5tr": dấu là phần thập phân khi có hậu tố
+  const num = m[2] && /^\d+[.,]\d{1,2}$/.test(m[1]) ? parseFloat(m[1].replace(',', '.')) : parseAmount(m[1]);
+  return isNaN(num) ? NaN : num * mul;
 }
 
 // ---------- Ngày ----------

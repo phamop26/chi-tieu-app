@@ -1,12 +1,14 @@
 import { t, setLang, getLang, catName, locale } from './i18n.js';
 import * as db from './db.js';
-import { readStatement, maskSensitive, norm, rowsToTransactions, parseAmount } from './parse.js';
+import { readStatement, maskSensitive, norm, rowsToTransactions, parseAmount, parseMoneyInput, loadXLSX } from './parse.js';
 import { BUILTIN_CATS, classify, learn, merchantKey, setCorpus, emptyModel, REVIEW_THRESHOLD, forgetCategory, shortLabel } from './classify.js';
 import { monthOf, shiftMonth, monthlySeries, findRecurring, findAnomalies, buildInsights } from './insights.js';
 import * as lock from './lock.js';
 import { sampleCSV } from './sample.js';
 import { initFinance } from './finance.js';
+import { initReport } from './report.js';
 import './i18n-v6.js';
+import './i18n-v7.js';
 
 // ---------------- Trạng thái ----------------
 const $ = s => document.querySelector(s);
@@ -18,7 +20,7 @@ const S = {
   settings: { lang: 'vi', currency: 'VND', notif: false, autoLock: 60, checkinDay: 1, saveDay: 6 },
   tab: 'overview', month: ymNow(), trendN: 6, trendCat: '',
   q: '', fCat: '', fMonth: '', txLimit: 150,
-  skipped: new Set(), remember: true, locked: false,
+  skipped: new Set(), remember: true, locked: false, sel: new Set(), selecting: false, txSort: 'new',
 };
 let catMap = {};
 const kindOf = id => (catMap[id] ? catMap[id].kind : 'out');
@@ -73,6 +75,7 @@ async function load() {
   S.imports = await db.getAll('imports');
   S.accounts = await db.getAll('accounts');
   S.goals = await db.getAll('goals');
+  S.ious = await db.getKV('ious', []);
   setCorpus(S.txs.map(x => x.desc));
   S.model = await db.getKV('model', emptyModel());
   rebuildCatMap();
@@ -282,6 +285,7 @@ function render() {
   if (head && S.tab !== 'settings') head.insertAdjacentHTML('beforeend', `<button class="icon-btn gear" data-act="tab" data-tab="settings" aria-label="${esc(t('tabSettings'))}">${svgIcon('settings')}</button>`);
   if (S.tab === 'review') attachSwipe();
   if (S.tab === 'trends') attachChart();
+  if (S.tab === 'overview') rp.attachPace();
 }
 
 function monthBounds() {
@@ -342,23 +346,27 @@ function viewOverview() {
     </div>
   </section>
   ${fin.upcomingCard(true)}
+  ${rp.wrapBanner()}
   ${reviewN ? `<button class="review-banner card" data-act="tab" data-tab="review">
       <span class="rb-icon">🗂️</span><span><b>${esc(t('reviewBanner', { n: reviewN }))}</b><small>${esc(t('reviewBannerSub'))}</small></span><span class="rb-go">${esc(t('reviewNow'))} ›</span>
     </button>` : ''}
   ${cur.count ? `
+  ${rp.paceCard(S.month)}
+  ${rp.savingsCard(S.month)}
+  ${rp.budgetsCard(S.month)}
   <section class="card">
-    <h3>${esc(t('notes'))}</h3>
-    <ul class="insights">${list.map(i => `<li><span class="ins-icon">${i.icon}</span><span>${esc(t(i.key, fmtParams(i.p)))}</span></li>`).join('')}</ul>
-  </section>
-  <section class="card">
-    <h3>${esc(t('byCategory'))}</h3>
+    <div class="row-between"><h3>${esc(t('byCategory'))}</h3><small class="muted">${esc(t('tapForDetail'))}</small></div>
     <ul class="cat-bars">${cur.cats.map(c => `
-      <li><button data-act="cat-filter" data-cat="${esc(c.cat)}">
+      <li><button data-act="rp-drill" data-cat="${esc(c.cat)}">
         <span class="cb-icon">${catMap[c.cat]?.icon || '📦'}</span>
         <span class="cb-main"><span class="cb-top"><span class="cb-name">${esc(catText(c.cat))}</span><span class="cb-val">${esc(money(c.v))}</span></span>
         <span class="cb-track"><span class="cb-fill" style="width:${Math.max(2, (c.v / maxV) * 100).toFixed(1)}%"></span></span>
-        <span class="cb-pct muted">${esc(pct(cur.out ? c.v / cur.out : 0))}</span></span>
+        <span class="cb-pct muted">${esc(pct(cur.out ? c.v / cur.out : 0))} ›</span></span>
       </button></li>`).join('')}</ul>
+  </section>
+  <section class="card">
+    <h3>${esc(t('notes'))}</h3>
+    <ul class="insights">${[...rp.budgetInsights(S.month), ...list.map(i => ({ icon: i.icon, text: t(i.key, fmtParams(i.p)) }))].map(i => `<li><span class="ins-icon">${i.icon}</span><span>${esc(i.text)}</span></li>`).join('')}</ul>
   </section>` : `<p class="empty card">${esc(t('noData'))}</p>`}
   ${standalone ? '' : `<p class="hint">📲 ${esc(t('installHint'))}</p>`}`;
 }
@@ -375,7 +383,7 @@ function viewTrends() {
   const anom = findAnomalies(S.txs, S.month, kindOf);
   window.__series = series;
   return `
-  <header class="top"><span class="brand">${esc(t('tabTrends'))}</span></header>
+  <header class="top"><span class="brand">${esc(t('tabTrends'))}</span><button class="btn small ghost" data-act="rp-wrap" data-m="${S.month}">✨ ${esc(monthLabel(S.month, 'short'))}</button></header>
   <section class="card">
     <div class="row-between"><h3>${esc(t('monthlySpend'))}${S.trendCat ? ' · ' + esc(catText(S.trendCat)) : ''}</h3>
       <div class="seg">${[6, 12].map(n => `<button class="${S.trendN === n ? 'on' : ''}" data-act="trend-n" data-n="${n}">${esc(t('months' + n))}</button>`).join('')}</div></div>
@@ -561,40 +569,107 @@ function attachSwipe() {
 }
 
 // ---------------- Giao dịch ----------------
+// Tìm theo số tiền: "50k", "50000", ">500k", "<1tr", "100k-300k" (k = nghìn, tr/m = triệu)
+function amountOf(str) {
+  const m = String(str).toLowerCase().match(/^([\d.,]+)\s*(k|nghin|tr|trieu|m|ty|b)?$/);
+  if (!m) return null;
+  const v = parseAmount(m[1]);
+  if (isNaN(v)) return null;
+  const mul = { k: 1e3, nghin: 1e3, tr: 1e6, trieu: 1e6, m: 1e6, ty: 1e9, b: 1e9 }[m[2]] || 1;
+  return Math.abs(v) * mul;
+}
+function parseQuery(q) {
+  const words = String(q || '').trim().split(/\s+/).filter(Boolean);
+  const text = [], ranges = [];
+  for (const w of words) {
+    let r = null, mm;
+    if ((mm = w.match(/^(.+?)-(.+)$/)) && amountOf(mm[1]) !== null && amountOf(mm[2]) !== null) r = [amountOf(mm[1]), amountOf(mm[2])];
+    else if ((mm = w.match(/^(>=?|<=?)(.+)$/)) && amountOf(mm[2]) !== null) r = mm[1][0] === '>' ? [amountOf(mm[2]), Infinity] : [0, amountOf(mm[2])];
+    else if (/\d/.test(w) && amountOf(w) !== null && amountOf(w) >= 1000) { const v = amountOf(w); r = [v * 0.99, v * 1.01]; }
+    if (r) ranges.push(r); else text.push(norm(w));
+  }
+  return { text: text.join(' '), ranges };
+}
 function filteredTx() {
-  const q = norm(S.q);
-  return S.txs.filter(x => (!S.fCat || x.cat === S.fCat) && (!S.fMonth || monthOf(x.date) === S.fMonth) && (!q || norm(x.desc).includes(q) || norm(catText(x.cat)).includes(q)))
-    .sort((a, b) => b.date.localeCompare(a.date) || a.amount - b.amount);
+  const { text, ranges } = parseQuery(S.q);
+  const list = S.txs.filter(x => {
+    if (S.fCat && x.cat !== S.fCat) return false;
+    if (S.fMonth && monthOf(x.date) !== S.fMonth) return false;
+    if (text && !norm(x.desc).includes(text) && !norm(catText(x.cat)).includes(text)) return false;
+    const a = Math.abs(x.amount);
+    return ranges.every(([lo, hi]) => a >= Math.min(lo, hi) && a <= Math.max(lo, hi));
+  });
+  const sort = S.txSort || 'new';
+  if (sort === 'big') list.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  else if (sort === 'small') list.sort((a, b) => Math.abs(a.amount) - Math.abs(b.amount));
+  else list.sort((a, b) => b.date.localeCompare(a.date) || a.amount - b.amount);
+  return list;
 }
 function viewTx() {
   const months = [...new Set(S.txs.map(x => monthOf(x.date)))].sort().reverse();
   return `
   <header class="top"><span class="brand">${esc(t('tabTx'))}</span><button class="btn small primary" data-act="add-menu" aria-label="${esc(t('addMenu'))}">＋ ${esc(t('fAdd'))}</button></header>
   <div class="filters">
-    <input type="search" id="q" placeholder="${esc(t('search'))}" value="${esc(S.q)}" data-chg="q" autocomplete="off">
-    <div class="filter-row">
-      <select data-chg="fMonth"><option value="">${esc(t('allMonths'))}</option>${months.map(m => `<option value="${m}" ${S.fMonth === m ? 'selected' : ''}>${esc(monthLabel(m))}</option>`).join('')}</select>
-      <select data-chg="fCat"><option value="">${esc(t('allCats'))}</option>${S.cats.map(c => `<option value="${esc(c.id)}" ${S.fCat === c.id ? 'selected' : ''}>${c.icon} ${esc(catName(c))}</option>`).join('')}</select>
+    <input type="search" id="q" placeholder="${esc(t('searchHint'))}" value="${esc(S.q)}" data-chg="q" autocomplete="off">
+    <div class="filter-row three">
+      <select data-chg="fMonth" aria-label="${esc(t('month'))}"><option value="">${esc(t('allMonths'))}</option>${months.map(m => `<option value="${m}" ${S.fMonth === m ? 'selected' : ''}>${esc(monthLabel(m))}</option>`).join('')}</select>
+      <select data-chg="fCat" aria-label="${esc(t('mCat'))}"><option value="">${esc(t('allCats'))}</option>${S.cats.map(c => `<option value="${esc(c.id)}" ${S.fCat === c.id ? 'selected' : ''}>${c.icon} ${esc(catName(c))}</option>`).join('')}</select>
+      <select data-chg="txSort" aria-label="${esc(t('sortNew'))}">${[['new', 'sortNew'], ['big', 'sortBig'], ['small', 'sortSmall']].map(([v, k]) => `<option value="${v}" ${(S.txSort || 'new') === v ? 'selected' : ''}>${esc(t(k))}</option>`).join('')}</select>
     </div>
   </div>
   <div id="tx-list">${txListHtml()}</div>`;
 }
+function txRow(x, showDate) {
+  const neutral = kindOf(x.cat) === 'neutral';
+  const sel = S.selecting;
+  const on = sel && S.sel.has(x.id);
+  return `<li><button class="li ${on ? 'picked' : ''}" data-act="${sel ? 'tx-toggle' : 'tx-open'}" data-id="${esc(x.id)}" ${sel ? `aria-pressed="${on}"` : ''}>
+      ${sel ? `<span class="tick ${on ? 'on' : ''}">${on ? '✓' : ''}</span>` : ''}
+      <span class="li-icon">${catMap[x.cat]?.icon || '📦'}</span>
+      <span class="li-main"><b>${esc(shortLabel(x.desc))}</b><small class="muted">${showDate ? esc(dateLabel(x.date)) + ' · ' : ''}${esc(catText(x.cat))}${x.status === 'review' ? ` · <span class="pill">${esc(t('statusReview'))}</span>` : ''}${neutral ? ` · ${esc(t('excluded'))}` : ''}${x.source === 'manual' ? ` · ${esc(t('manualTag'))}` : ''}</small><small class="desc">${esc(x.desc)}</small></span>
+      <span class="li-amt ${x.amount > 0 ? 'in' : ''}">${esc(signed(x.amount))}</span></button></li>`;
+}
 function txListHtml() {
   const list = filteredTx();
   if (!list.length) return `<p class="empty card">${esc(t('noTx'))}</p>`;
-  let html = '', lastDate = '';
+  const out = list.filter(x => x.amount < 0 && kindOf(x.cat) !== 'neutral').reduce((s, x) => s - x.amount, 0);
+  const inc = list.filter(x => x.amount > 0 && kindOf(x.cat) !== 'neutral').reduce((s, x) => s + x.amount, 0);
+  let html = `<div class="list-head"><small class="muted">${esc(t('resultSum', { n: list.length, o: money(out), i: money(inc) }))}</small>
+    <button class="btn small ${S.selecting ? 'primary' : 'ghost'}" data-act="tx-select">${esc(S.selecting ? t('selectDone') : t('selectMode'))}</button></div>`;
+  const byDate = (S.txSort || 'new') === 'new';
+  let lastDate = '';
+  if (!byDate) html += '<ul class="list card">';
   for (const x of list.slice(0, S.txLimit)) {
-    if (x.date !== lastDate) { if (lastDate) html += '</ul>'; html += `<h4 class="day">${esc(dateLabel(x.date))}</h4><ul class="list card">`; lastDate = x.date; }
-    const neutral = kindOf(x.cat) === 'neutral';
-    html += `<li><button class="li" data-act="tx-open" data-id="${esc(x.id)}">
-      <span class="li-icon">${catMap[x.cat]?.icon || '📦'}</span>
-      <span class="li-main"><b>${esc(shortLabel(x.desc))}</b><small class="muted">${esc(catText(x.cat))}${x.status === 'review' ? ` · <span class="pill">${esc(t('statusReview'))}</span>` : ''}${neutral ? ` · ${esc(t('excluded'))}` : ''}</small><small class="desc">${esc(x.desc)}</small></span>
-      <span class="li-amt ${x.amount > 0 ? 'in' : ''}">${esc(signed(x.amount))}</span></button></li>`;
+    if (byDate && x.date !== lastDate) { if (lastDate) html += '</ul>'; html += `<h4 class="day">${esc(dateLabel(x.date))}</h4><ul class="list card">`; lastDate = x.date; }
+    html += txRow(x, !byDate);
   }
   html += '</ul>';
   if (list.length > S.txLimit) html += `<button class="btn ghost wide" data-act="more">… ${list.length - S.txLimit}</button>`;
+  if (S.selecting) html += `<div class="bulk-bar">
+      <span><b>${esc(t('selectedN', { n: S.sel.size }))}</b><button class="link-btn" data-act="tx-select-all">${esc(t('selectAll', { n: list.length }))}</button></span>
+      <button class="btn primary small" data-act="tx-bulk" ${S.sel.size ? '' : 'disabled'}>${esc(t('bulkMove'))}</button></div>`;
   return html;
 }
+function openBulkSheet() {
+  const txs = S.txs.filter(x => S.sel.has(x.id));
+  const anyIn = txs.some(x => x.amount > 0), anyOut = txs.some(x => x.amount < 0);
+  const kinds = anyIn && !anyOut ? ['in', 'neutral', 'out'] : ['out', 'neutral', 'in'];
+  const cats = [...S.cats].sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind));
+  openSheet(`<h3>${esc(t('bulkMove'))}</h3><p class="muted small">${esc(t('selectedN', { n: txs.length }))}</p>
+    <div class="chips">${cats.map(c => `<button class="chip" data-act="tx-bulk-pick" data-cat="${esc(c.id)}">${c.icon} ${esc(catName(c))}</button>`).join('')}
+    <button class="chip dashed" data-act="tx-bulk-new">＋ ${esc(t('newCat'))}</button></div>
+    <div class="row-gap"><button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button></div>`);
+}
+// Xếp nhiều giao dịch một lúc: học từ từng khoản nhưng không tự lan sang khoản khác
+function bulkAssign(cat) {
+  const txs = S.txs.filter(x => S.sel.has(x.id));
+  for (const x of txs) { confirmTx(x, cat, false); learn(S.model, x, cat); }
+  modelDirty = true; persistSoon(); reclassifySoon();
+  toast(t('bulkDone', { n: txs.length, c: catText(cat) }));
+  S.sel.clear(); S.selecting = false;
+  closeSheet(); render();
+}
+
 function openTxSheet(tx) {
   openSheet(`
     <h3>${esc(t('editCat'))}</h3>
@@ -660,8 +735,8 @@ function viewSettings() {
   <h4 class="sec-title">${esc(t('security'))}</h4>
   <section class="card settings">
     <div class="set-row"><span>🔒 ${esc(t('pinLock'))}</span>${sec.pin ? `<span class="row-gap"><button class="btn small ghost" data-act="pin-change">${esc(t('pinChange'))}</button><button class="btn small ghost" data-act="pin-remove">${esc(t('pinRemove'))}</button></span>` : `<button class="btn small primary" data-act="pin-set">${esc(t('pinSet'))}</button>`}</div>
-    <label class="set-row"><span>🫆 ${esc(t('bio'))}</span><input type="checkbox" class="switch" data-chg="bio" ${sec.bio ? 'checked' : ''} ${sec.pin && sec.bioOk ? '' : 'disabled'}></label>
-    ${!sec.bioOk ? `<p class="muted small">${esc(t('bioUnsupported'))}</p>` : !sec.pin ? `<p class="muted small">${esc(t('bioNeedPin'))}</p>` : ''}
+    <label class="set-row"><span>🫆 ${esc(t('bio'))}</span><input type="checkbox" class="switch" data-chg="bio" ${sec.bio ? 'checked' : ''} ${sec.bioOk ? '' : 'disabled'}></label>
+    ${!sec.bioOk ? `<p class="muted small">${esc(t('bioWhy'))}</p>` : ''}
     <label class="set-row"><span>⏱️ ${esc(t('autoLock'))}</span><select data-chg="autoLock" ${sec.pin ? '' : 'disabled'}>${[[0, 'autoLockNow'], [60, 'autoLock1'], [300, 'autoLock5']].map(([v, k]) => `<option value="${v}" ${S.settings.autoLock === v ? 'selected' : ''}>${esc(t(k))}</option>`).join('')}</select></label>
   </section>
   <h4 class="sec-title">${esc(t('notif'))}</h4>
@@ -679,6 +754,8 @@ function viewSettings() {
   <h4 class="sec-title">${esc(t('data'))}</h4>
   <section class="card settings">
     <button class="set-row link" data-act="privacy"><span>🛡️ ${esc(t('whereData'))}</span><span>›</span></button>
+    <button class="set-row link" data-act="export-xlsx"><span>📊 ${esc(t('exportXlsx'))}</span><span>›</span></button>
+    <button class="set-row link" data-act="export-csv"><span>🧾 ${esc(t('exportCsv'))}</span><span>›</span></button>
     <button class="set-row link" data-act="export"><span>💾 ${esc(t('exportData'))}</span><span>›</span></button>
     <button class="set-row link" data-act="restore"><span>📂 ${esc(t('importBackup'))}</span><span>›</span></button>
     ${S.imports.length ? `<div class="imports"><small class="muted">${esc(t('imports'))}</small>${[...S.imports].reverse().map(i => `<div class="set-row"><span><b>${esc(i.name)}</b><small class="muted"> · ${esc(new Date(i.at).toLocaleDateString(locale()))} · ${esc(t('txCount', { n: S.txs.filter(x => x.importId === i.id).length }))}</small></span><button class="btn small ghost" data-act="import-del" data-id="${esc(i.id)}" aria-label="${esc(t('importDel'))}">🗑️</button></div>`).join('')}</div>` : ''}
@@ -691,7 +768,7 @@ async function refreshSecurity() {
 }
 
 function openPrivacy() {
-  openSheet(`<h3>${esc(t('whereData'))}</h3><ul class="privacy">${[...t('privacyBody'), t('privacyOcr')].map(p => `<li>${p}</li>`).join('')}</ul>
+  openSheet(`<h3>${esc(t('whereData'))}</h3><ul class="privacy">${[...t('privacyBody'), t('privacyOcr'), t('privacyFx')].map(p => `<li>${p}</li>`).join('')}</ul>
     <button class="btn primary wide" data-act="sheet-close">${esc(t('close'))}</button>`);
 }
 
@@ -838,7 +915,7 @@ function openManual(pre = {}) {
   if (!pre.amount) setTimeout(() => $('#m-amount')?.focus(), 250);
 }
 async function saveManual() {
-  const v = Math.abs(parseAmount($('#m-amount').value || ''));
+  const v = Math.abs(parseMoneyInput($('#m-amount').value || ''));
   if (!v) { toast(t('mNeedAmount')); $('#m-amount').focus(); return; }
   const desc = maskSensitive($('#m-desc').value.trim()) || (M.cat ? catText(M.cat) : '');
   const cat = M.cat || (M.sign < 0 ? 'other' : 'income');
@@ -863,8 +940,72 @@ async function readPhoto(file) {
   }
 }
 
+// ---------------- Xuất giao dịch (Excel / CSV) để phân tích thêm ----------------
+function exportRows() {
+  const kindLabel = k => t(k === 'in' ? 'kindIn' : k === 'neutral' ? 'kindNeutral' : 'kindOut');
+  const accName = id => (S.accounts.find(a => a.id === id) || {}).name || '';
+  const head = [t('xDate'), t('xMonth'), t('xDesc'), t('xAmount'), t('xCat'), t('xKind'), t('xStatus'), t('xAccount'), t('xSource')];
+  const rows = [...S.txs].sort((a, b) => a.date.localeCompare(b.date)).map(x => [
+    x.date, monthOf(x.date), x.desc, x.amount, catText(x.cat), kindLabel(kindOf(x.cat)),
+    x.status === 'confirmed' ? '✓' : x.status === 'review' ? t('statusReview') : 'auto', accName(x.accountId), x.source === 'manual' ? t('manualTag') : (x.importId || ''),
+  ]);
+  return { head, rows };
+}
+const fileStamp = () => new Date().toISOString().slice(0, 10);
+function exportCsv() {
+  const { head, rows } = exportRows();
+  const cell = v => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const text = '﻿' + [head, ...rows].map(r => r.map(cell).join(',')).join('\r\n');
+  download(`chi-tieu-${fileStamp()}.csv`, text, 'text/csv;charset=utf-8');
+  toast(t('exportNote'), 6000);
+}
+async function exportXlsx() {
+  let XLSX;
+  try { XLSX = await loadXLSX(); } catch (e) { toast(t('importFail', { e: e.message })); return; }
+  const { head, rows } = exportRows();
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows]), 'Transactions');
+  // Bảng tổng hợp: chi theo tháng × mục (sẵn để vẽ biểu đồ / đưa vào Power BI)
+  const months = [...new Set(S.txs.map(x => monthOf(x.date)))].sort();
+  const cats = S.cats.filter(c => c.kind === 'out').map(c => c.id);
+  const pivot = [[t('xMonth'), ...cats.map(catText), t('spent'), t('income')]];
+  for (const m of months) {
+    const inM = S.txs.filter(x => monthOf(x.date) === m && kindOf(x.cat) !== 'neutral');
+    const out = cats.map(c => inM.filter(x => x.cat === c && x.amount < 0).reduce((s, x) => s - x.amount, 0));
+    pivot.push([m, ...out, inM.filter(x => x.amount < 0).reduce((s, x) => s - x.amount, 0), inM.filter(x => x.amount > 0).reduce((s, x) => s + x.amount, 0)]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pivot), 'Monthly');
+  if (S.accounts.length) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Name', 'Type', 'Currency', 'Balance', 'Updated'], ...S.accounts.map(a => [a.name, a.type, a.currency || 'VND', a.balance || 0, a.updatedAt || ''])]), 'Accounts');
+  }
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = `chi-tieu-${fileStamp()}.xlsx`; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  toast(t('exportNote'), 6000);
+}
+
 // ---------------- Tài chính ----------------
 const fin = initFinance({ S, db, esc, money, pct, monthLabel, openSheet, closeSheet, toast, download, render: () => render() });
+const rp = initReport({ S, db, esc, money, pct, monthLabel, dateLabel, openSheet, closeSheet, toast, parseAmount: parseMoneyInput, kindOf, catMap: () => catMap, render: () => render() });
+
+// Bật Face ID: phải gọi ngay trong lần chạm của người dùng (yêu cầu của iPhone)
+async function turnOnBio() {
+  try {
+    await lock.enableBio(t('appName'));
+    toast(t('bioOn'));
+    return true;
+  } catch (e) {
+    const name = (e && e.name) || '';
+    toast(name === 'NotAllowedError' || name === 'AbortError' ? t('bioErrDenied') : t('bioErrOther', { e: name || e }), 9000);
+    return false;
+  }
+}
+function openBioSetup() {
+  openSheet(`<h3>🫆 ${esc(t('bioSetupTitle'))}</h3><p class="muted">${esc(t('bioSetupBody'))}</p>
+    <div class="row-gap"><button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button><button class="btn primary" data-act="bio-go">${esc(t('bioEnableBtn'))}</button></div>`);
+}
 
 // ---------------- Sự kiện ----------------
 const actions = {
@@ -927,6 +1068,12 @@ const actions = {
     const id = await createCat(name, $('#nc-icon').value.trim());
     closeSheet(id);
   },
+  'tx-select': () => { S.selecting = !S.selecting; S.sel = new Set(); $('#tx-list').innerHTML = txListHtml(); },
+  'tx-toggle': el => { const id = el.dataset.id; S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id); $('#tx-list').innerHTML = txListHtml(); },
+  'tx-select-all': () => { const l = filteredTx(); S.sel = new Set(S.sel.size === l.length ? [] : l.map(x => x.id)); $('#tx-list').innerHTML = txListHtml(); },
+  'tx-bulk': openBulkSheet,
+  'tx-bulk-pick': el => bulkAssign(el.dataset.cat),
+  'tx-bulk-new': async () => { closeSheet(); await new Promise(r => setTimeout(r, 220)); const id = await newCatDialog(); if (id) bulkAssign(id); },
   'more': () => { S.txLimit += 300; $('#tx-list').innerHTML = txListHtml(); },
   'trend-n': el => { S.trendN = +el.dataset.n; render(); },
   'trend-cat': el => { S.trendCat = el.dataset.cat; render(); },
@@ -941,8 +1088,10 @@ const actions = {
     closeSheet(rowsToTransactions(rows, headerRow, map));
   },
   'privacy': (el, e) => { e.preventDefault(); openPrivacy(); },
+  'export-csv': exportCsv,
+  'export-xlsx': exportXlsx,
   'export': () => {
-    const data = { app: 'chi-tieu', version: 2, exportedAt: new Date().toISOString(), txs: S.txs, cats: S.cats, imports: S.imports, model: S.model, settings: S.settings, accounts: S.accounts, goals: S.goals };
+    const data = { app: 'chi-tieu', version: 2, exportedAt: new Date().toISOString(), txs: S.txs, cats: S.cats, imports: S.imports, model: S.model, settings: S.settings, accounts: S.accounts, goals: S.goals, ious: S.ious || [] };
     download(`chi-tieu-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data), 'application/json');
   },
   'restore': () => $('#restore-file').click(),
@@ -992,7 +1141,8 @@ const actions = {
     for (const id of ids) ensureCat(id);
     render();
   },
-  'pin-set': async () => { await setupPin(); await refreshSecurity(); render(); },
+  'bio-go': async () => { const ok = await turnOnBio(); closeSheet(); await refreshSecurity(); render(); if (!ok) openBioSetup(); },
+  'pin-set': async () => { const ok = await setupPin(); await refreshSecurity(); render(); if (ok && S._sec.bioOk && !S._sec.bio) openBioSetup(); },
   'pin-change': async () => {
     const p = await db.getKV('pin');
     const ok = await pinPad({ title: t('enterPin'), len: p.len, cancellable: true, onSubmit: async pin => (await lock.checkPin(pin)) || t('wrongPin') });
@@ -1007,13 +1157,14 @@ const actions = {
   },
 };
 
-Object.assign(actions, fin.actions);
+Object.assign(actions, fin.actions, rp.actions);
 
 const changes = {
   remember: el => { S.remember = el.checked; },
   q: el => { S.q = el.value; S.txLimit = 150; $('#tx-list').innerHTML = txListHtml(); },
   fMonth: el => { S.fMonth = el.value; $('#tx-list').innerHTML = txListHtml(); },
   fCat: el => { S.fCat = el.value; $('#tx-list').innerHTML = txListHtml(); },
+  txSort: el => { S.txSort = el.value; $('#tx-list').innerHTML = txListHtml(); },
   lang: async el => { S.settings.lang = el.value; setLang(el.value); await saveSettings(); render(); },
   currency: async el => { S.settings.currency = el.value; await saveSettings(); render(); },
   theme: async el => { S.settings.theme = el.value; applyTheme(); await saveSettings(); },
@@ -1026,9 +1177,18 @@ const changes = {
     S.settings.notif = el.checked && 'Notification' in window; await saveSettings(); render();
   },
   bio: async el => {
-    try {
-      if (el.checked) await lock.enableBio(t('appName')); else await lock.disableBio();
-    } catch (e) { el.checked = false; toast(t('bioUnsupported')); }
+    if (!el.checked) { await lock.disableBio(); await refreshSecurity(); render(); return; }
+    if (!S._sec.bioOk) { el.checked = false; toast(t('bioWhy'), 6000); return; }
+    if (!S._sec.pin) {
+      // Chưa có PIN → đặt PIN trước, rồi mời bấm nút bật Face ID (iPhone cần một lần chạm mới)
+      el.checked = false;
+      const ok = await setupPin();
+      await refreshSecurity(); render();
+      if (ok) openBioSetup();
+      return;
+    }
+    const ok = await turnOnBio();
+    if (!ok) el.checked = false;
     await refreshSecurity(); render();
   },
 };
@@ -1067,6 +1227,7 @@ $('#restore-file').addEventListener('change', async e => {
     await db.clear('accounts'); await db.clear('goals');
     await db.putMany('tx', data.txs); await db.putMany('cats', data.cats); await db.putMany('imports', data.imports || []);
     await db.putMany('accounts', data.accounts || []); await db.putMany('goals', data.goals || []);
+    await db.setKV('ious', data.ious || []);
     await db.setKV('model', data.model || emptyModel());
     await db.setKV('settings', { ...S.settings, ...(data.settings || {}) });
     await load(); render(); toast('✅');
@@ -1131,4 +1292,5 @@ function upgradeClassifier() {
     return;
   }
   takeSharedFiles().catch(() => {});
+  fin.refreshRates();
 })();
