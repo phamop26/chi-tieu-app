@@ -512,6 +512,7 @@ function viewReview() {
     ${sug ? `<button class="btn round yes" data-act="rv-yes" aria-label="${esc(t('correct'))}">✓<span>${esc(t('correct'))}</span></button>` : ''}
   </div>
   <p class="muted center small">${esc(t('swipeHint'))}</p>
+  ${S.rvMode !== 'extra' && tx.cat === 'transfer' && !keyOf(tx) ? (() => { const n = unknownTransfers().length; return n > 1 ? `<section class="card note-card"><p class="muted small">${esc(t('bulkHint'))}</p><button class="btn wide" data-act="rv-bulk-transfer">${esc(t('bulkTransfer', { n }))}</button></section>` : ''; })() : ''}
   <section class="card">
     <h3>${esc(sug ? t('pickOther') : t('suggestion'))}</h3>
     <div class="chips">${choices.map(c => `<button class="chip" data-act="rv-pick" data-cat="${esc(c)}">${catMap[c].icon} ${esc(catText(c))}</button>`).join('')}
@@ -520,6 +521,8 @@ function viewReview() {
   </section>`;
 }
 
+// Khoản chuyển tiền mà sao kê không ghi người nhận → app không thể tự đoán
+const unknownTransfers = () => S.txs.filter(x => x.status === 'review' && x.cat === 'transfer' && !keyOf(x));
 function reviewDecide(cat) {
   const card = $('#rv-card');
   const tx = S.txs.find(x => x.id === card?.dataset.id);
@@ -895,6 +898,10 @@ const actions = {
   'cat-filter': el => { S.tab = 'tx'; S.fCat = el.dataset.cat; S.fMonth = S.month; S.q = ''; render(); window.scrollTo(0, 0); },
   'rv-yes': () => { const tx = S.txs.find(x => x.id === $('#rv-card').dataset.id); reviewDecide(tx.cat); },
   'rv-later': reviewLater,
+  'rv-bulk-transfer': () => {
+    for (const x of unknownTransfers()) { x.status = 'auto'; x.conf = 0.5; dirtyTx.add(x); }
+    persistSoon(); render();
+  },
   'rv-mode': el => { S.rvMode = el.dataset.m; S.tab = 'review'; render(); window.scrollTo(0, 0); },
   'rv-pick': el => reviewDecide(el.dataset.cat),
   'rv-new': async () => { const id = await newCatDialog(); if (id) reviewDecide(id); },

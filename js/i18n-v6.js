@@ -3,6 +3,7 @@ import { addStrings } from './i18n.js';
 
 addStrings({
   vi: {
+    bulkTransfer: 'Để tạm {n} khoản chuyển tiền không rõ người nhận ở “Chuyển khoản khác”', bulkHint: 'Sao kê không ghi người nhận nên app không đoán được. Các khoản này vẫn được tính vào chi tiêu, và bạn xếp lại được bất cứ lúc nào trong “Rảnh thì xếp thêm”.',
     catKind: 'Loại', kindOut: 'Khoản chi', kindIn: 'Khoản thu', kindNeutral: 'Không tính (chuyển giữa tài khoản của mình)',
     catDelConfirm: 'Xóa mục “{c}”? {n} giao dịch của mục này sẽ chuyển về “Khác” để bạn xếp lại.',
     restoreCats: 'Khôi phục các mục mặc định đã xóa', catHint: 'Chạm vào một mục để đổi tên, biểu tượng hoặc xóa.',
@@ -20,6 +21,7 @@ addStrings({
     privacyOcr: '📷 <b>Đọc từ ảnh:</b> ảnh được đọc ngay trên điện thoại và không được lưu lại. Lần đầu dùng, app tải bộ đọc chữ (Tesseract, khoảng 10 MB) từ cdn.jsdelivr.net — chỉ tải về, không gửi ảnh hay dữ liệu nào đi.',
   },
   en: {
+    bulkTransfer: 'Park {n} transfers with no recipient in “Other transfers”', bulkHint: 'The statement does not name the recipient, so the app cannot guess. They still count as spending and you can sort them any time in “Sort more when free”.',
     catKind: 'Type', kindOut: 'Expense', kindIn: 'Income', kindNeutral: 'Not counted (between my accounts)',
     catDelConfirm: 'Delete “{c}”? Its {n} transactions will move to “Other” so you can re-sort them.',
     restoreCats: 'Restore deleted default categories', catHint: 'Tap a category to rename it, change its icon or delete it.',
@@ -37,6 +39,7 @@ addStrings({
     privacyOcr: '📷 <b>Read from photo:</b> photos are read on the phone and never stored. The first time, the app downloads the text reader (Tesseract, about 10 MB) from cdn.jsdelivr.net — download only, no photo or data is sent.',
   },
   fr: {
+    bulkTransfer: 'Ranger {n} virements sans bénéficiaire dans « Autres virements »', bulkHint: 'Le relevé ne nomme pas le bénéficiaire, l’appli ne peut pas deviner. Ils restent comptés et vous pourrez les trier plus tard dans « Trier plus quand j’ai le temps ».',
     catKind: 'Type', kindOut: 'Dépense', kindIn: 'Revenu', kindNeutral: 'Non compté (entre mes comptes)',
     catDelConfirm: 'Supprimer « {c} » ? Ses {n} opérations passeront dans « Autre » pour être reclassées.',
     restoreCats: 'Restaurer les catégories par défaut supprimées', catHint: 'Touchez une catégorie pour la renommer, changer son icône ou la supprimer.',
