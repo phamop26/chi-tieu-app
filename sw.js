@@ -1,11 +1,11 @@
 // Service worker: cho app chạy khi không có mạng + nhận file được chia sẻ (Android).
 // Không gửi bất kỳ dữ liệu nào đi đâu.
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.0.1';
 const SHELL = `shell-${VERSION}`;
 const LIBS = 'libs-v1';
 const SHELL_FILES = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/app.js', 'js/i18n.js', 'js/db.js', 'js/parse.js', 'js/classify.js', 'js/insights.js', 'js/lock.js', 'js/sample.js',
+  'js/boot.js', 'js/app.js', 'js/i18n.js', 'js/db.js', 'js/parse.js', 'js/classify.js', 'js/insights.js', 'js/lock.js', 'js/sample.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 const LIB_FILES = [
@@ -67,7 +67,9 @@ self.addEventListener('fetch', e => {
   // App shell: ưu tiên mạng (để nhận bản mới), rớt mạng thì dùng bản đã lưu
   e.respondWith((async () => {
     try {
-      const res = await fetch(e.request);
+      let res = await fetch(e.request);
+      // Safari không chấp nhận trang "đã chuyển hướng" trả từ service worker → làm sạch lại
+      if (res.redirected) res = new Response(await res.blob(), { status: res.status, statusText: res.statusText, headers: res.headers });
       if (res.ok) (await caches.open(SHELL)).put(e.request, res.clone());
       return res;
     } catch (err) {

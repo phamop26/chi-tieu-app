@@ -27,7 +27,10 @@ export async function checkPin(pin) {
 
 export async function bioAvailable() {
   try {
-    return !!(window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
+    if (!window.PublicKeyCredential) return false;
+    // Một số bản Safari không trả lời → hết 2 giây thì coi như không có
+    const timeout = new Promise(res => setTimeout(() => res(false), 2000));
+    return !!(await Promise.race([PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(), timeout]));
   } catch (e) { return false; }
 }
 export async function hasBio() { return !!(await getKV('bio')); }

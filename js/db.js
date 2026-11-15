@@ -3,9 +3,25 @@ const DB_NAME = 'chitieu';
 const VERSION = 1;
 let dbPromise = null;
 
+// Safari đôi khi "treo" lần mở IndexedDB đầu tiên: gọi nhẹ indexedDB.databases() cho đến khi nó trả lời.
+function safariWake() {
+  if (!window.indexedDB) return Promise.reject(new Error('IndexedDB not available'));
+  if (!indexedDB.databases) return Promise.resolve();
+  return new Promise(resolve => {
+    let n = 0, timer = null, finished = false;
+    const finish = () => { if (!finished) { finished = true; clearTimeout(timer); resolve(); } };
+    const tick = () => {
+      indexedDB.databases().then(finish, finish);
+      if (++n < 30) timer = setTimeout(tick, 100); else finish();
+    };
+    tick();
+  });
+}
+
 function open() {
   if (!dbPromise) {
-    dbPromise = new Promise((resolve, reject) => {
+    dbPromise = safariWake().then(() => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('IndexedDB timeout')), 6000);
       const req = indexedDB.open(DB_NAME, VERSION);
       req.onupgradeneeded = () => {
         const d = req.result;
@@ -14,9 +30,9 @@ function open() {
         d.createObjectStore('imports', { keyPath: 'id' });
         d.createObjectStore('kv', { keyPath: 'k' });
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
+      req.onsuccess = () => { clearTimeout(timer); resolve(req.result); };
+      req.onerror = () => { clearTimeout(timer); reject(req.error || new Error('IndexedDB error')); };
+    })).catch(err => { dbPromise = null; throw err; });
   }
   return dbPromise;
 }

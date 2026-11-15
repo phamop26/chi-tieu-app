@@ -87,6 +87,13 @@ body.privacy-blur .view { filter: blur(18px); }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .row-between h3 { margin: 0; }
 
+/* Khởi động / lỗi khởi động */
+.boot { display: grid; place-items: center; min-height: 60vh; }
+.boot-spin { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.boot-err { text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; width: 100%; }
+.boot-err pre { white-space: pre-wrap; word-break: break-word; text-align: left; font-size: .75rem; background: var(--surface-2); padding: 12px; border-radius: 12px; width: 100%; margin: 0; }
+
 /* Welcome */
 .welcome { text-align: center; padding: 48px 8px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .welcome p { color: var(--ink-2); max-width: 380px; margin: 0; }

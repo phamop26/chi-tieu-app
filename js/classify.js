@@ -160,13 +160,13 @@ export function learn(model, tx, cat) {
   const sign = tx.amount < 0 ? 'out' : 'in';
   const key = merchantKey(tx.desc);
   if (key) {
-    const m = (model.merchants[sign + ':' + key] ||= {});
+    const mk = sign + ':' + key; if (!model.merchants[mk]) model.merchants[mk] = {}; const m = model.merchants[mk];
     // lựa chọn mới nhất được ưu tiên: làm mờ phiếu cũ của mục khác
     for (const c of Object.keys(m)) if (c !== cat) m[c] = Math.floor(m[c] / 2);
     m[cat] = (m[cat] || 0) + 1;
   }
   for (const w of tokens(tx.desc)) {
-    const c = (model.tokens[sign + ':' + w] ||= {});
+    const tk = sign + ':' + w; if (!model.tokens[tk]) model.tokens[tk] = {}; const c = model.tokens[tk];
     c[cat] = (c[cat] || 0) + 1;
   }
 }

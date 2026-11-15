@@ -51,7 +51,7 @@ export function findRecurring(txs, kindOf) {
     if (t.amount >= 0 || kindOf(t.cat) === 'neutral') continue;
     const k = merchantKey(t.desc);
     if (!k) continue;
-    (groups[k] ||= []).push(t);
+    (groups[k] = groups[k] || []).push(t);
   }
   const res = [];
   const latest = txs.reduce((m, t) => (t.date > m ? t.date : m), '0000');
@@ -91,7 +91,7 @@ export function findAnomalies(txs, ym, kindOf) {
   const outs = txs.filter(t => t.amount < 0 && kindOf(t.cat) !== 'neutral');
   // 1) giao dịch lớn hơn hẳn thường lệ của cùng mục
   const byCat = {};
-  for (const t of outs) (byCat[t.cat] ||= []).push(t);
+  for (const t of outs) (byCat[t.cat] = byCat[t.cat] || []).push(t);
   for (const t of outs) {
     if (monthOf(t.date) !== ym) continue;
     const hist = byCat[t.cat].filter(o => o.id !== t.id && o.date < t.date && o.date >= shiftMonth(ym, -6));

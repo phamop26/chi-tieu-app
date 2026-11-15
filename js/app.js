@@ -877,6 +877,11 @@ document.addEventListener('visibilitychange', async () => {
   document.body.classList.remove('privacy-blur');
   if (Date.now() - hiddenAt >= (S.settings.autoLock || 0) * 1000) await lockApp();
 });
+// Phòng khi trình duyệt không báo "visible" lại: luôn bỏ làm mờ khi trang hiện ra / được chạm vào.
+const unblur = () => { if (!document.hidden) document.body.classList.remove('privacy-blur'); };
+window.addEventListener('pageshow', unblur);
+window.addEventListener('focus', unblur);
+document.addEventListener('touchstart', unblur, { passive: true });
 
 // File được chia sẻ từ app khác (Android): service worker giữ tạm file trong cache "shared".
 async function takeSharedFiles() {
@@ -895,13 +900,17 @@ async function takeSharedFiles() {
 
 // ---------------- Khởi động ----------------
 (async function start() {
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-  if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
-  await load();
-  await refreshSecurity();
-  document.body.classList.add('locked');
-  await lockApp();
-  document.body.classList.remove('locked');
-  render();
-  await takeSharedFiles();
+  try {
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    await load();
+    await refreshSecurity();
+    window.__started = true;
+    await lockApp();
+    render();
+  } catch (err) {
+    if (window.__bootFail) window.__bootFail(err); else throw err;
+    return;
+  }
+  takeSharedFiles().catch(() => {});
 })();
