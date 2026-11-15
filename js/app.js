@@ -1,11 +1,12 @@
 import { t, setLang, getLang, catName, locale } from './i18n.js';
 import * as db from './db.js';
-import { readStatement, maskSensitive, norm, rowsToTransactions } from './parse.js';
-import { BUILTIN_CATS, classify, learn, merchantKey, emptyModel, REVIEW_THRESHOLD, forgetCategory, shortLabel } from './classify.js';
+import { readStatement, maskSensitive, norm, rowsToTransactions, parseAmount } from './parse.js';
+import { BUILTIN_CATS, classify, learn, merchantKey, setCorpus, emptyModel, REVIEW_THRESHOLD, forgetCategory, shortLabel } from './classify.js';
 import { monthOf, shiftMonth, monthlySeries, findRecurring, findAnomalies, buildInsights } from './insights.js';
 import * as lock from './lock.js';
 import { sampleCSV } from './sample.js';
 import { initFinance } from './finance.js';
+import './i18n-v6.js';
 
 // ---------------- Trạng thái ----------------
 const $ = s => document.querySelector(s);
@@ -62,6 +63,7 @@ const signed = v => (v > 0 ? '+' : '−') + money(Math.abs(v));
 async function load() {
   S.settings = { ...S.settings, ...(await db.getKV('settings', {})) };
   setLang(S.settings.lang);
+  applyTheme();
   S.cats = await db.getAll('cats');
   if (!S.cats.length) {
     S.cats = BUILTIN_CATS.filter(c => !c.lib).map(c => ({ id: c.id, icon: c.icon, kind: c.kind }));
@@ -71,15 +73,27 @@ async function load() {
   S.imports = await db.getAll('imports');
   S.accounts = await db.getAll('accounts');
   S.goals = await db.getAll('goals');
+  setCorpus(S.txs.map(x => x.desc));
   S.model = await db.getKV('model', emptyModel());
   rebuildCatMap();
   if (S.txs.length) S.month = monthOf(S.txs.reduce((m, x) => (x.date > m ? x.date : m), ''));
 }
 const saveSettings = () => db.setKV('settings', S.settings);
 
+// Giao diện sáng / tối / theo máy
+function applyTheme() {
+  const th = S.settings.theme || 'auto';
+  const root = document.documentElement;
+  if (th === 'auto') delete root.dataset.theme; else root.dataset.theme = th;
+  const dark = th === 'dark' || (th === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  try { localStorage.setItem('theme', th); } catch (e) { /* ignore */ }
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => { m.content = dark ? '#0d0d0d' : '#f6f5f1'; m.removeAttribute('media'); });
+}
+
 // Tự tạo mục mới khi gặp giao dịch thuộc mục có trong thư viện nhưng chưa dùng.
+const hiddenCats = () => S.settings.hiddenCats || [];
 function ensureCat(id) {
-  if (catMap[id]) return false;
+  if (catMap[id] || hiddenCats().includes(id)) return false; // mục người dùng đã xóa thì không tự tạo lại
   const b = BUILTIN_CATS.find(c => c.id === id);
   const cat = b ? { id, icon: b.icon, kind: b.kind, auto: true } : { id, icon: '📦', kind: 'out', name: id };
   S.cats.push(cat); rebuildCatMap(); db.put('cats', cat);
@@ -88,9 +102,10 @@ function ensureCat(id) {
 
 function applyClassification(tx) {
   const r = classify(tx, S.model, id => !!catMap[id]);
-  tx.cat = r.cat; tx.conf = r.conf; tx.alts = r.alts;
-  tx.status = r.conf >= REVIEW_THRESHOLD ? 'auto' : 'review';
+  tx.cat = r.cat; tx.conf = r.conf; tx.alts = (r.alts || []).filter(c => !hiddenCats().includes(c));
   ensureCat(tx.cat);
+  if (!catMap[tx.cat]) { tx.cat = 'other'; tx.conf = Math.min(tx.conf, 0.4); } // mục đã bị xóa → hỏi lại người dùng
+  tx.status = tx.conf >= REVIEW_THRESHOLD ? 'auto' : 'review';
 }
 
 function fnv(s) {
@@ -105,6 +120,7 @@ async function ingest(raw, source, account = null) {
   const existing = new Set(S.txs.map(x => x.id));
   const occ = {}; const added = []; let dups = 0;
   const catsBefore = new Set(S.cats.map(c => c.id));
+  setCorpus([...S.txs.map(x => x.desc), ...raw.map(r => maskSensitive(r.desc))]); keyCache.clear();
   for (const r of raw) {
     const desc = maskSensitive(r.desc);
     const base = fnv(r.date + '|' + r.amount + '|' + norm(desc));
@@ -160,28 +176,55 @@ async function notifyImport(r) {
 }
 
 // Xác nhận mục của một giao dịch + học cho lần sau.
-async function confirmTx(tx, cat, remember = true) {
+// ---- Lưu nền: gom thay đổi lại, ghi xuống máy sau 0,8 giây (không bắt người dùng chờ) ----
+const keyCache = new Map();
+const keyOf = tx => { let k = keyCache.get(tx.desc); if (k === undefined) { k = merchantKey(tx.desc); keyCache.set(tx.desc, k); } return k; };
+const dirtyTx = new Set();
+let modelDirty = false, saveTimer = null;
+function persistSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSaves, 800); }
+async function flushSaves() {
+  clearTimeout(saveTimer);
+  const items = [...dirtyTx]; dirtyTx.clear();
+  if (items.length) await db.putMany('tx', items);
+  if (modelDirty) { modelDirty = false; await db.setKV('model', S.model); }
+}
+
+// Xếp lại các giao dịch "cần xem" sau khi app học thêm — chạy nền, không chặn giao diện
+let reclassTimer = null;
+function reclassifySoon() {
+  clearTimeout(reclassTimer);
+  reclassTimer = setTimeout(() => {
+    let n = 0;
+    for (const o of S.txs) {
+      if (o.status !== 'review') continue;
+      const before = o.cat;
+      applyClassification(o);
+      if (o.status !== 'review') n++;
+      if (o.status !== 'review' || o.cat !== before) dirtyTx.add(o);
+    }
+    if (n) { persistSoon(); renderTabs(); }
+  }, 400);
+}
+
+// Xác nhận mục của một giao dịch + học cho lần sau. Chạy ngay (đồng bộ); phần lưu và xếp lại chạy nền.
+function confirmTx(tx, cat, remember = true) {
   tx.cat = cat; tx.status = 'confirmed'; tx.conf = 1;
-  const changed = [tx];
+  dirtyTx.add(tx);
   let n = 0;
   if (remember) {
-    learn(S.model, tx, cat);
-    const key = merchantKey(tx.desc);
+    learn(S.model, tx, cat); modelDirty = true;
+    const key = keyOf(tx);
     const sign = Math.sign(tx.amount);
-    for (const o of S.txs) {
-      if (o === tx || o.status === 'confirmed') continue;
-      if (key && Math.sign(o.amount) === sign && merchantKey(o.desc) === key) {
+    if (key) {
+      for (const o of S.txs) {
+        if (o === tx || o.status === 'confirmed' || Math.sign(o.amount) !== sign || keyOf(o) !== key) continue;
         if (o.cat !== cat || o.status === 'review') n++;
-        o.cat = cat; o.status = 'auto'; o.conf = 0.9; changed.push(o);
-      } else if (o.status === 'review') {
-        const before = o.cat;
-        applyClassification(o);
-        if (o.status !== 'review') { n++; changed.push(o); } else if (o.cat !== before) changed.push(o);
+        o.cat = cat; o.status = 'auto'; o.conf = 0.9; dirtyTx.add(o);
       }
     }
-    await db.setKV('model', S.model);
+    reclassifySoon();
   }
-  await db.putMany('tx', changed);
+  persistSoon();
   return n;
 }
 
@@ -221,10 +264,10 @@ const svgIcon = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</s
 
 function renderTabs() {
   const n = S.txs.filter(x => x.status === 'review').length;
-  $('#tabs').innerHTML = ['overview', 'trends', 'finance', 'review', 'tx', 'settings'].map(k => {
+  $('#tabs').innerHTML = ['overview', 'trends', 'finance', 'review', 'tx'].map(k => {
     const label = t({ overview: 'tabOverview', trends: 'tabTrends', finance: 'tabFinance', review: 'tabReview', tx: 'tabTx', settings: 'tabSettings' }[k]);
     const badge = k === 'review' && n ? `<span class="badge">${n > 99 ? '99+' : n}</span>` : '';
-    return `<button class="tab ${S.tab === k ? 'on' : ''}" data-act="tab" data-tab="${k}" aria-current="${S.tab === k ? 'page' : 'false'}">${svgIcon(k)}${badge}<span>${esc(label)}</span></button>`;
+    return `<button class="tab ${S.tab === k ? 'on' : ''}" data-act="tab" data-tab="${k}" aria-current="${S.tab === k ? 'page' : 'false'}"><span class="tab-ic">${svgIcon(k)}${badge}</span><span>${esc(label)}</span></button>`;
   }).join('');
 }
 
@@ -234,6 +277,9 @@ function render() {
   const v = $('#view');
   const views = { overview: viewOverview, trends: viewTrends, finance: fin.view, review: viewReview, tx: viewTx, settings: viewSettings };
   v.innerHTML = views[S.tab]();
+  // Cài đặt chuyển lên nút bánh răng ở góc trên (thanh dưới chỉ giữ 5 mục chính)
+  const head = v.querySelector('header.top');
+  if (head && S.tab !== 'settings') head.insertAdjacentHTML('beforeend', `<button class="icon-btn gear" data-act="tab" data-tab="settings" aria-label="${esc(t('tabSettings'))}">${svgIcon('settings')}</button>`);
   if (S.tab === 'review') attachSwipe();
   if (S.tab === 'trends') attachChart();
 }
@@ -260,6 +306,7 @@ function welcome() {
     <h1>${esc(t('welcomeTitle'))}</h1>
     <p>${esc(t('welcomeBody'))}</p>
     <button class="btn primary big" data-act="import">${esc(t('importBtn'))}</button>
+    <button class="btn ghost" data-act="manual">✍️ ${esc(t('addManual'))}</button>
     <button class="btn ghost" data-act="sample">${esc(t('sampleBtn'))}</button>
     <p class="privacy-note">🔒 ${esc(t('welcomePrivacy'))} <a href="#" data-act="privacy">${esc(t('whereData'))}</a></p>
   </section>`;
@@ -282,7 +329,7 @@ function viewOverview() {
   const maxV = cur.cats.length ? cur.cats[0].v : 1;
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   return `
-  <header class="top"><span class="brand">${esc(t('appName'))}</span><button class="btn small primary" data-act="import">＋ ${esc(t('importBtn'))}</button></header>
+  <header class="top"><span class="brand">${esc(t('appName'))}</span><button class="btn small primary" data-act="add-menu" aria-label="${esc(t('addMenu'))}">＋ ${esc(t('fAdd'))}</button></header>
   ${monthSwitcher()}
   <section class="hero card">
     <div class="hero-label">${esc(t('spent'))}</div>
@@ -411,9 +458,21 @@ function attachChart() {
 }
 
 // ---------------- Xem lại ----------------
+// "Cần xem": app không chắc. "Rảnh thì xếp thêm": app đã tự xếp nhưng chưa được người dùng xác nhận (ít chắc nhất trước).
+const extraList = () => S.txs.filter(x => x.status === 'auto')
+  .sort((a, b) => (S.skipped.has(a.id) - S.skipped.has(b.id)) || (a.conf || 0) - (b.conf || 0) || Math.abs(b.amount) - Math.abs(a.amount));
 function reviewList() {
+  if (S.rvMode === 'extra') return extraList();
   return S.txs.filter(x => x.status === 'review')
     .sort((a, b) => (S.skipped.has(a.id) - S.skipped.has(b.id)) || Math.abs(b.amount) - Math.abs(a.amount));
+}
+function reviewTabs() {
+  const need = S.txs.filter(x => x.status === 'review').length;
+  const extra = S.txs.filter(x => x.status === 'auto').length;
+  return `<div class="seg wide">
+    <button class="${S.rvMode !== 'extra' ? 'on' : ''}" data-act="rv-mode" data-m="need">${esc(t('rvNeed', { n: need }))}</button>
+    <button class="${S.rvMode === 'extra' ? 'on' : ''}" data-act="rv-mode" data-m="extra">${esc(t('rvExtra', { n: extra }))}</button></div>
+    ${S.rvMode === 'extra' ? `<p class="muted small">${esc(t('rvExtraHint'))}</p>` : ''}`;
 }
 function catChoices(tx) {
   const want = tx.amount < 0 ? ['out', 'neutral'] : ['in', 'neutral', 'out'];
@@ -424,14 +483,20 @@ function catChoices(tx) {
 }
 function viewReview() {
   const list = reviewList();
-  if (!list.length) return `<header class="top"><span class="brand">${esc(t('reviewTitle'))}</span></header>
-    <section class="welcome"><div class="welcome-art">🌿</div><h1>${esc(t('reviewEmpty'))}</h1><p>${esc(t('reviewEmptySub'))}</p></section>`;
+  if (!list.length) {
+    const extraN = S.txs.filter(x => x.status === 'auto').length;
+    return `<header class="top"><span class="brand">${esc(t('reviewTitle'))}</span></header>${reviewTabs()}
+    <section class="welcome"><div class="welcome-art">${S.rvMode === 'extra' ? '👏' : '🌿'}</div>
+      <h1>${esc(S.rvMode === 'extra' ? t('rvExtraEmpty') : t('reviewEmpty'))}</h1>
+      ${S.rvMode === 'extra' ? '' : `<p>${esc(t('reviewEmptySub'))}</p>${extraN ? `<button class="btn primary" data-act="rv-mode" data-m="extra">${esc(t('rvExtraGo'))} (${extraN})</button>` : ''}`}</section>`;
+  }
   const tx = list[0];
   const total = list.length;
   const sug = catMap[tx.cat] && tx.conf > 0.3 ? tx.cat : null;
   const choices = catChoices(tx).filter(c => c !== sug);
   return `
   <header class="top"><span class="brand">${esc(t('reviewTitle'))}</span><span class="muted">${esc(t('progress', { i: 1, n: total }))}</span></header>
+  ${reviewTabs()}
   <div class="rv-stack">
     ${total > 1 ? '<div class="rv-card ghost-card"></div>' : ''}
     <article class="rv-card card" id="rv-card" data-id="${esc(tx.id)}">
@@ -455,11 +520,11 @@ function viewReview() {
   </section>`;
 }
 
-async function reviewDecide(cat) {
+function reviewDecide(cat) {
   const card = $('#rv-card');
   const tx = S.txs.find(x => x.id === card?.dataset.id);
   if (!tx) return;
-  const n = await confirmTx(tx, cat, S.remember);
+  const n = confirmTx(tx, cat, S.remember);
   if (n) toast(t('learnedN', { n }));
   render();
 }
@@ -501,7 +566,7 @@ function filteredTx() {
 function viewTx() {
   const months = [...new Set(S.txs.map(x => monthOf(x.date)))].sort().reverse();
   return `
-  <header class="top"><span class="brand">${esc(t('tabTx'))}</span><button class="btn small primary" data-act="import">＋ ${esc(t('importBtn'))}</button></header>
+  <header class="top"><span class="brand">${esc(t('tabTx'))}</span><button class="btn small primary" data-act="add-menu" aria-label="${esc(t('addMenu'))}">＋ ${esc(t('fAdd'))}</button></header>
   <div class="filters">
     <input type="search" id="q" placeholder="${esc(t('search'))}" value="${esc(S.q)}" data-chg="q" autocomplete="off">
     <div class="filter-row">
@@ -535,7 +600,8 @@ function openTxSheet(tx) {
     <div class="chips">${catChoices(tx).map(c => `<button class="chip ${c === tx.cat ? 'on' : ''}" data-act="tx-pick" data-id="${esc(tx.id)}" data-cat="${esc(c)}">${catMap[c].icon} ${esc(catText(c))}</button>`).join('')}
     <button class="chip dashed" data-act="tx-new" data-id="${esc(tx.id)}">＋ ${esc(t('newCat'))}</button></div>
     <label class="check"><input type="checkbox" data-chg="remember" ${S.remember ? 'checked' : ''}> ${esc(t('rememberSimilar'))}</label>
-    <button class="btn ghost wide" data-act="sheet-close">${esc(t('close'))}</button>`);
+    <div class="row-gap"><button class="btn danger" data-act="tx-del" data-id="${esc(tx.id)}">🗑️ ${esc(t('deleteTx'))}</button>
+    <button class="btn ghost" data-act="sheet-close">${esc(t('close'))}</button></div>`);
 }
 
 // ---------------- Mục mới ----------------
@@ -582,9 +648,10 @@ function viewSettings() {
   for (const x of S.txs) counts[x.cat] = (counts[x.cat] || 0) + 1;
   const sec = S._sec || {};
   return `
-  <header class="top"><span class="brand">${esc(t('tabSettings'))}</span></header>
+  <header class="top"><button class="icon-btn back" data-act="tab" data-tab="overview" aria-label="‹">‹</button><span class="brand">${esc(t('tabSettings'))}</span></header>
   <section class="card settings">
     <label class="set-row"><span>🌐 ${esc(t('language'))}</span><select data-chg="lang">${[['vi', 'Tiếng Việt'], ['en', 'English'], ['fr', 'Français']].map(([k, n]) => `<option value="${k}" ${getLang() === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+    <label class="set-row"><span>🌓 ${esc(t('theme'))}</span><select data-chg="theme">${[['auto', 'themeAuto'], ['light', 'themeLight'], ['dark', 'themeDark']].map(([v, k]) => `<option value="${v}" ${(S.settings.theme || 'auto') === v ? 'selected' : ''}>${esc(t(k))}</option>`).join('')}</select></label>
     <label class="set-row"><span>💱 ${esc(t('currency'))}</span><select data-chg="currency">${['VND', 'USD', 'EUR'].map(c => `<option ${S.settings.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
   </section>
   <h4 class="sec-title">${esc(t('security'))}</h4>
@@ -601,8 +668,10 @@ function viewSettings() {
   </section>
   <h4 class="sec-title">${esc(t('categories'))}</h4>
   <section class="card">
+    <p class="muted small" style="margin:0 0 10px">${esc(t('catHint'))}</p>
     <div class="chips">${S.cats.map(c => `<button class="chip" data-act="cat-edit" data-cat="${esc(c.id)}">${c.icon} ${esc(catName(c))} <small class="muted">${counts[c.id] || 0}</small></button>`).join('')}
     <button class="chip dashed" data-act="cat-add">＋ ${esc(t('addCat'))}</button></div>
+    ${hiddenCats().length ? `<button class="btn ghost small" data-act="cat-restore">↺ ${esc(t('restoreCats'))}</button>` : ''}
   </section>
   <h4 class="sec-title">${esc(t('data'))}</h4>
   <section class="card settings">
@@ -619,7 +688,7 @@ async function refreshSecurity() {
 }
 
 function openPrivacy() {
-  openSheet(`<h3>${esc(t('whereData'))}</h3><ul class="privacy">${t('privacyBody').map(p => `<li>${p}</li>`).join('')}</ul>
+  openSheet(`<h3>${esc(t('whereData'))}</h3><ul class="privacy">${[...t('privacyBody'), t('privacyOcr')].map(p => `<li>${p}</li>`).join('')}</ul>
     <button class="btn primary wide" data-act="sheet-close">${esc(t('close'))}</button>`);
 }
 
@@ -636,13 +705,18 @@ function openWipe() {
     <div class="row-gap"><button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button><button class="btn danger" data-act="wipe-ok">${esc(t('delete'))}</button></div>`);
 }
 
+const EMOJIS = ['🍜', '☕', '🛒', '🛵', '🚗', '⛽', '🛍️', '👗', '💡', '📱', '🏠', '🎬', '🎮', '✈️', '🩺', '💊', '📚', '🎓', '👪', '🎁', '🐾', '💇', '🏋️', '🧾', '💳', '📈', '🏦', '💰', '🔁', '📦', '🏷️', '❤️'];
 function openCatEdit(id) {
   const c = catMap[id];
-  const custom = id.startsWith('c_');
+  const n = S.txs.filter(x => x.cat === id).length;
   openSheet(`<h3>${c.icon} ${esc(catName(c))}</h3>
     <label class="field">${esc(t('catName'))}<input id="ce-name" value="${esc(catName(c))}" maxlength="30"></label>
     <label class="field">${esc(t('catIcon'))}<input id="ce-icon" value="${esc(c.icon)}" maxlength="4"></label>
-    <div class="row-gap">${custom ? `<button class="btn danger" data-act="ce-del" data-cat="${esc(id)}">${esc(t('delete'))}</button>` : ''}<button class="btn primary" data-act="ce-save" data-cat="${esc(id)}">${esc(t('save'))}</button></div>`);
+    <div class="emoji-row">${EMOJIS.map(e => `<button class="chip ${e === c.icon ? 'on' : ''}" data-act="ce-emoji" data-e="${e}">${e}</button>`).join('')}</div>
+    <label class="field">${esc(t('catKind'))}<select id="ce-kind">${[['out', 'kindOut'], ['in', 'kindIn'], ['neutral', 'kindNeutral']].map(([v, k]) => `<option value="${v}" ${c.kind === v ? 'selected' : ''}>${esc(t(k))}</option>`).join('')}</select></label>
+    <div class="row-gap">${id !== 'other' ? `<button class="btn danger" data-act="ce-del" data-cat="${esc(id)}" data-n="${n}">${esc(t('delete'))}</button>` : ''}
+      <button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button>
+      <button class="btn primary" data-act="ce-save" data-cat="${esc(id)}">${esc(t('save'))}</button></div>`);
 }
 
 function download(name, text, type) {
@@ -721,6 +795,71 @@ async function setupPin() {
   return true;
 }
 
+// ---------------- Thêm giao dịch: menu, ghi tay, đọc từ ảnh ----------------
+function openAddMenu() {
+  const item = (act, icon, title, sub) => `<button class="menu-item" data-act="${act}"><span class="mi-icon">${icon}</span><span><b>${esc(title)}</b><small class="muted">${esc(sub)}</small></span><span class="muted">›</span></button>`;
+  openSheet(`<h3>${esc(t('addMenu'))}</h3>
+    <div class="menu">${item('menu-import', '📄', t('addStatement'), t('addStatementSub'))}${item('manual', '✍️', t('addManual'), t('addManualSub'))}${item('menu-photo', '📷', t('addPhoto'), t('addPhotoSub'))}</div>
+    <button class="btn ghost wide" data-act="sheet-close">${esc(t('cancel'))}</button>`);
+}
+
+const todayYmd = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const M = { sign: -1, cat: null, catTouched: false };
+function manualCats() {
+  const want = M.sign < 0 ? ['out', 'neutral'] : ['in', 'neutral'];
+  return S.cats.filter(c => want.includes(c.kind));
+}
+function drawManualCats() {
+  const box = $('#m-cats'); if (!box) return;
+  box.innerHTML = manualCats().map(c => `<button class="chip ${M.cat === c.id ? 'on' : ''}" data-act="m-cat" data-cat="${esc(c.id)}">${c.icon} ${esc(catName(c))}</button>`).join('');
+}
+function suggestManualCat() {
+  if (M.catTouched) return;
+  const desc = $('#m-desc')?.value || '';
+  if (!desc.trim()) return;
+  const r = classify({ desc, amount: M.sign }, S.model, id => !!catMap[id]);
+  if (catMap[r.cat] && manualCats().some(c => c.id === r.cat)) { M.cat = r.cat; drawManualCats(); }
+}
+function openManual(pre = {}) {
+  M.sign = pre.incoming ? 1 : -1; M.cat = null; M.catTouched = false;
+  const amt = pre.amount ? new Intl.NumberFormat(locale()).format(pre.amount) : '';
+  openSheet(`<h3>✍️ ${esc(t('manualTitle'))}</h3>
+    ${pre.note ? `<p class="note">${esc(pre.note)}</p>` : ''}
+    <div class="seg wide"><button class="${M.sign < 0 ? 'on' : ''}" data-act="m-sign" data-s="-1">${esc(t('mOut'))}</button><button class="${M.sign > 0 ? 'on' : ''}" data-act="m-sign" data-s="1">${esc(t('mIn'))}</button></div>
+    <label class="field">${esc(t('mAmount'))}<input id="m-amount" inputmode="decimal" autocomplete="off" value="${esc(amt)}" placeholder="0"></label>
+    <label class="field">${esc(t('mDesc'))}<input id="m-desc" maxlength="80" autocomplete="off" value="${esc(pre.desc || '')}"></label>
+    <label class="field">${esc(t('mDate'))}<input id="m-date" type="date" value="${esc(pre.date || todayYmd())}"></label>
+    <div class="field">${esc(t('mCat'))}<div class="chips" id="m-cats"></div></div>
+    <div class="row-gap"><button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button><button class="btn primary" data-act="m-save">${esc(t('save'))}</button></div>`);
+  drawManualCats(); suggestManualCat();
+  if (!pre.amount) setTimeout(() => $('#m-amount')?.focus(), 250);
+}
+async function saveManual() {
+  const v = Math.abs(parseAmount($('#m-amount').value || ''));
+  if (!v) { toast(t('mNeedAmount')); $('#m-amount').focus(); return; }
+  const desc = maskSensitive($('#m-desc').value.trim()) || (M.cat ? catText(M.cat) : '');
+  const cat = M.cat || (M.sign < 0 ? 'other' : 'income');
+  ensureCat(cat);
+  const tx = { id: 'm_' + Date.now().toString(36), date: $('#m-date').value || todayYmd(), amount: M.sign * v, desc, importId: 'manual', source: 'manual', cat, conf: 1, status: 'confirmed' };
+  if ($('#m-desc').value.trim()) { learn(S.model, tx, cat); modelDirty = true; }
+  S.txs.push(tx); dirtyTx.add(tx); await flushSaves();
+  S.month = monthOf(tx.date);
+  closeSheet(); render(); toast(t('mSaved'));
+}
+async function readPhoto(file) {
+  toast(t('ocrReading'), 120000);
+  try {
+    const { readImage } = await import('./ocr.js');
+    const r = await readImage(file);
+    hideToast();
+    openManual({ ...r, note: (r.amount ? t('ocrCheck') : t('ocrNoAmount')) + ' ' + t('ocrPrivacy') });
+  } catch (e) {
+    hideToast();
+    toast(t('ocrFail', { e: e.message || e }), 6000);
+    openManual({});
+  }
+}
+
 // ---------------- Tài chính ----------------
 const fin = initFinance({ S, db, esc, money, pct, monthLabel, openSheet, closeSheet, toast, download, render: () => render() });
 
@@ -729,6 +868,24 @@ const actions = {
   'tab': el => { S.tab = el.dataset.tab; if (S.tab === 'tx') S.txLimit = 150; render(); window.scrollTo(0, 0); },
   'month': el => { S.month = shiftMonth(S.month, +el.dataset.d); render(); },
   'import': () => $('#file').click(),
+  'add-menu': openAddMenu,
+  'menu-import': () => { closeSheet(); $('#file').click(); },
+  'menu-photo': () => { closeSheet(); $('#photo-file').click(); },
+  'manual': async () => { if (!$('#sheet').hidden) { closeSheet(); await new Promise(r => setTimeout(r, 220)); } openManual(); },
+  'm-sign': el => {
+    M.sign = +el.dataset.s; M.cat = null; M.catTouched = false;
+    document.querySelectorAll('[data-act="m-sign"]').forEach(b => b.classList.toggle('on', b === el));
+    drawManualCats(); suggestManualCat();
+  },
+  'm-cat': el => { M.cat = el.dataset.cat; M.catTouched = true; drawManualCats(); },
+  'm-save': saveManual,
+  'tx-del': async el => {
+    if (!confirm(t('deleteTxConfirm'))) return;
+    const id = el.dataset.id;
+    S.txs = S.txs.filter(x => x.id !== id);
+    await db.remove('tx', id);
+    closeSheet(); render();
+  },
   'sample': async () => {
     const file = new File([sampleCSV()], 'sao-ke-mau.csv', { type: 'text/csv' });
     await importFiles([file]);
@@ -738,6 +895,7 @@ const actions = {
   'cat-filter': el => { S.tab = 'tx'; S.fCat = el.dataset.cat; S.fMonth = S.month; S.q = ''; render(); window.scrollTo(0, 0); },
   'rv-yes': () => { const tx = S.txs.find(x => x.id === $('#rv-card').dataset.id); reviewDecide(tx.cat); },
   'rv-later': reviewLater,
+  'rv-mode': el => { S.rvMode = el.dataset.m; S.tab = 'review'; render(); window.scrollTo(0, 0); },
   'rv-pick': el => reviewDecide(el.dataset.cat),
   'rv-new': async () => { const id = await newCatDialog(); if (id) reviewDecide(id); },
   'tx-open': el => openTxSheet(S.txs.find(x => x.id === el.dataset.id)),
@@ -794,27 +952,38 @@ const actions = {
   'wipe-ok': async () => {
     const v = norm($('#wipe-input').value);
     if (!['xoa', 'delete', 'supprimer'].includes(v)) { $('#wipe-input').focus(); return; }
+    clearTimeout(saveTimer); clearTimeout(reclassTimer); dirtyTx.clear(); modelDirty = false; // không ghi lại dữ liệu sau khi xóa
     await db.wipeEverything();
     alert(t('wipeDone'));
     location.replace(location.pathname);
   },
   'cat-edit': el => openCatEdit(el.dataset.cat),
   'cat-add': async () => { const id = await newCatDialog(); if (id) render(); },
+  'ce-emoji': el => { $('#ce-icon').value = el.dataset.e; document.querySelectorAll('[data-act="ce-emoji"]').forEach(b => b.classList.toggle('on', b === el)); },
   'ce-save': async el => {
     const c = catMap[el.dataset.cat];
     const name = $('#ce-name').value.trim(), icon = $('#ce-icon').value.trim();
     if (name && name !== catName(c)) c.name = name;
     if (icon) c.icon = icon;
+    c.kind = $('#ce-kind').value || c.kind;
     await db.put('cats', c); closeSheet(); render();
   },
   'ce-del': async el => {
     const id = el.dataset.cat;
+    if (id === 'other' || !confirm(t('catDelConfirm', { c: catText(id), n: el.dataset.n || 0 }))) return;
     const moved = S.txs.filter(x => x.cat === id);
     moved.forEach(x => { x.cat = 'other'; x.status = 'review'; x.conf = 0; });
     forgetCategory(S.model, id);
+    if (!id.startsWith('c_')) { S.settings.hiddenCats = [...new Set([...hiddenCats(), id])]; await saveSettings(); }
     S.cats = S.cats.filter(c => c.id !== id); rebuildCatMap();
     await db.putMany('tx', moved); await db.remove('cats', id); await db.setKV('model', S.model);
     closeSheet(); render();
+  },
+  'cat-restore': async () => {
+    const ids = hiddenCats();
+    S.settings.hiddenCats = []; await saveSettings();
+    for (const id of ids) ensureCat(id);
+    render();
   },
   'pin-set': async () => { await setupPin(); await refreshSecurity(); render(); },
   'pin-change': async () => {
@@ -840,6 +1009,7 @@ const changes = {
   fCat: el => { S.fCat = el.value; $('#tx-list').innerHTML = txListHtml(); },
   lang: async el => { S.settings.lang = el.value; setLang(el.value); await saveSettings(); render(); },
   currency: async el => { S.settings.currency = el.value; await saveSettings(); render(); },
+  theme: async el => { S.settings.theme = el.value; applyTheme(); await saveSettings(); },
   autoLock: async el => { S.settings.autoLock = +el.value; await saveSettings(); },
   notif: async el => {
     if (el.checked && 'Notification' in window) {
@@ -862,7 +1032,10 @@ document.addEventListener('click', e => {
   const fn = actions[el.dataset.act];
   if (fn) fn(el, e);
 });
-document.addEventListener('input', e => { if (e.target.dataset.chg === 'q') changes.q(e.target); });
+document.addEventListener('input', e => {
+  if (e.target.dataset.chg === 'q') changes.q(e.target);
+  if (e.target.id === 'm-desc') { clearTimeout(window.__mdT); window.__mdT = setTimeout(suggestManualCat, 250); }
+});
 document.addEventListener('change', e => {
   const k = e.target.dataset.chg;
   if (k && k !== 'q' && changes[k]) changes[k](e.target);
@@ -872,6 +1045,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheet
 $('#file').addEventListener('change', async e => {
   const files = [...e.target.files]; e.target.value = '';
   if (files.length) await importFiles(files);
+});
+$('#photo-file').addEventListener('change', e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (f) readPhoto(f);
 });
 $('#restore-file').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = '';
@@ -892,13 +1069,14 @@ $('#restore-file').addEventListener('change', async e => {
 // Tự khóa khi rời app, làm mờ nội dung trong trình chuyển app.
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', async () => {
-  if (document.hidden) { hiddenAt = Date.now(); document.body.classList.add('privacy-blur'); return; }
+  if (document.hidden) { flushSaves(); hiddenAt = Date.now(); document.body.classList.add('privacy-blur'); return; }
   document.body.classList.remove('privacy-blur');
   if (Date.now() - hiddenAt >= (S.settings.autoLock || 0) * 1000) await lockApp();
 });
 // Phòng khi trình duyệt không báo "visible" lại: luôn bỏ làm mờ khi trang hiện ra / được chạm vào.
 const unblur = () => { if (!document.hidden) document.body.classList.remove('privacy-blur'); };
 window.addEventListener('pageshow', unblur);
+window.addEventListener('pagehide', () => { flushSaves(); });
 window.addEventListener('focus', unblur);
 document.addEventListener('touchstart', unblur, { passive: true });
 
@@ -917,12 +1095,26 @@ async function takeSharedFiles() {
   if (files.length) { toast(t('sharedReceived')); await importFiles(files); }
 }
 
+// Bản 6 có bộ phân loại mới → xếp lại một lần các giao dịch chưa được người dùng xác nhận
+function upgradeClassifier() {
+  if ((S.settings.classifierVersion || 1) >= 2) return;
+  for (const x of S.txs) {
+    if (x.status === 'confirmed' || x.source === 'manual') continue;
+    const before = x.cat + x.status;
+    applyClassification(x);
+    if (x.cat + x.status !== before) dirtyTx.add(x);
+  }
+  S.settings.classifierVersion = 2;
+  saveSettings(); persistSoon();
+}
+
 // ---------------- Khởi động ----------------
 (async function start() {
   try {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     await load();
+    upgradeClassifier();
     await refreshSecurity();
     window.__started = true;
     await lockApp();

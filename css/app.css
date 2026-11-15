@@ -52,7 +52,9 @@ body {
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: contain;
 }
-button, input, select { font: inherit; color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
+/* iPhone tự phóng to khi ô nhập có chữ < 16px → luôn giữ 16px */
+input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px !important; }
 button { cursor: pointer; }
 h1, h2, h3, h4 { margin: 0; line-height: 1.25; }
 h3 { font-size: 1rem; margin-bottom: 12px; }
@@ -152,6 +154,8 @@ body.privacy-blur .view { filter: blur(18px); }
 .seg { display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 3px; }
 .seg button { border: 0; background: none; padding: 6px 12px; border-radius: 999px; font-size: .8125rem; }
 .seg button.on { background: var(--surface); box-shadow: var(--shadow); font-weight: 600; }
+.seg.wide { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+.seg.wide button { padding: 9px 8px; min-height: 40px; }
 
 /* Chart */
 .chart { position: relative; }
@@ -247,6 +251,15 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: lef
 .type-btn span { font-size: 1.75rem; }
 .type-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* Menu thêm giao dịch */
+.menu { display: flex; flex-direction: column; gap: 8px; }
+.menu-item { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 14px; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); min-height: 64px; }
+.menu-item b { display: block; }
+.menu-item small { display: block; }
+.menu-item > span:nth-child(2) { flex: 1; min-width: 0; }
+.mi-icon { font-size: 1.6rem; width: 40px; height: 40px; display: grid; place-items: center; background: var(--accent-soft); border-radius: 12px; flex: none; }
+.note { background: var(--accent-soft); color: var(--ink-2); padding: 10px 12px; border-radius: 12px; font-size: .875rem; }
+
 /* Tabs */
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
@@ -308,3 +321,43 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: lef
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 @media (min-width: 600px) { .view { padding-top: 24px; } }
+
+/* ===== Bản 6: làm mới giao diện (theo hướng dẫn UI/UX: ≤5 tab, phản hồi khi chạm, phân cấp rõ) ===== */
+:root { --hero-a: #17675a; --hero-b: #0e4a40; --radius: 20px; }
+:root[data-theme="dark"] { --hero-a: #1d6b5d; --hero-b: #123f37; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --hero-a: #1d6b5d; --hero-b: #123f37; } }
+
+/* Thanh dưới: 5 mục, mục đang chọn có nền viên thuốc */
+.tabs { grid-template-columns: repeat(5, 1fr); }
+.tab { font-size: .6875rem; gap: 4px; padding: 0 2px; }
+.tab-ic { position: relative; display: grid; place-items: center; width: 58px; height: 30px; border-radius: 999px; transition: background-color .2s ease; }
+.tab.on .tab-ic { background: var(--accent-soft); }
+.tab .badge { top: -5px; left: auto; right: 4px; }
+
+/* Tiêu đề lớn kiểu iOS + nút bánh răng */
+.top { gap: 10px; }
+.top .brand { margin-right: auto; font-size: 1.625rem; font-weight: 800; letter-spacing: -.02em; }
+.icon-btn.gear, .icon-btn.back { width: 44px; height: 44px; box-shadow: none; background: var(--surface-2); display: grid; place-items: center; flex: none; color: var(--ink-2); }
+.icon-btn.gear svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn.back { font-size: 1.75rem; }
+
+/* Thẻ chính nổi bật (Đã chi / Tài sản ròng) */
+.hero { background: linear-gradient(150deg, var(--hero-a) 0%, var(--hero-b) 100%); color: #fff; box-shadow: 0 10px 28px rgba(14, 74, 64, .28); }
+.hero .hero-label, .hero .hero-cmp, .hero .muted { color: rgba(255, 255, 255, .82); }
+.hero .hero-row { border-top-color: rgba(255, 255, 255, .22); }
+
+/* Phản hồi khi chạm (150ms), con trỏ tay trên máy tính */
+button, .chip, .li, .menu-item, .type-btn, summary { cursor: pointer; -webkit-user-select: none; user-select: none; }
+.btn, .chip, .menu-item, .type-btn, .icon-btn, .keypad button { transition: transform .12s ease, background-color .15s ease, box-shadow .15s ease; }
+.btn:active, .chip:active, .menu-item:active, .type-btn:active, .icon-btn:active, .keypad button:active { transform: scale(.96); }
+.li:active, .cat-bars button:active { background: var(--surface-2); }
+.btn.primary { box-shadow: 0 2px 10px rgba(23, 103, 90, .25); }
+.chip.on { box-shadow: 0 2px 8px rgba(23, 103, 90, .22); }
+
+/* Nhịp khoảng cách đều hơn */
+.view { gap: 16px; }
+.card h3 { font-size: 1.0625rem; letter-spacing: -.01em; }
+.sec-title { margin: 10px 4px -8px; }
+.hero-row span::first-letter { text-transform: uppercase; }
+/* Nút Lưu/Hủy luôn thấy ở đáy bảng, không phải cuộn */
+.sheet-panel > .row-gap:last-child { position: sticky; bottom: calc(-20px - env(safe-area-inset-bottom)); background: var(--surface); margin: 4px -16px calc(-20px - env(safe-area-inset-bottom)); padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }

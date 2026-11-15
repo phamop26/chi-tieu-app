@@ -46,7 +46,7 @@ const S = {
     search: 'Tìm giao dịch…', allMonths: 'Mọi tháng', editCat: 'Đổi mục', excluded: 'không tính',
     statusReview: 'cần xem', noTx: 'Không có giao dịch phù hợp.',
     // settings
-    language: 'Ngôn ngữ', currency: 'Tiền tệ', security: 'Bảo mật', pinLock: 'Khóa bằng mã PIN',
+    language: 'Ngôn ngữ', theme: 'Giao diện', themeAuto: 'Theo máy', themeLight: 'Sáng', themeDark: 'Tối', currency: 'Tiền tệ', security: 'Bảo mật', pinLock: 'Khóa bằng mã PIN',
     pinSet: 'Đặt mã PIN', pinChange: 'Đổi mã PIN', pinRemove: 'Tắt khóa', bio: 'Mở bằng vân tay / Face ID',
     bioUnsupported: 'Thiết bị hoặc trình duyệt này chưa hỗ trợ sinh trắc học.', bioNeedPin: 'Hãy đặt mã PIN trước.',
     autoLock: 'Tự khóa khi rời app', autoLockNow: 'Ngay lập tức', autoLock1: 'Sau 1 phút', autoLock5: 'Sau 5 phút',
@@ -119,7 +119,7 @@ const S = {
     progress: '{i} / {n}', learnedN: 'Learned — also fixed {n} similar transactions.',
     search: 'Search transactions…', allMonths: 'All months', editCat: 'Change category', excluded: 'excluded',
     statusReview: 'to review', noTx: 'No matching transactions.',
-    language: 'Language', currency: 'Currency', security: 'Security', pinLock: 'PIN lock',
+    language: 'Language', theme: 'Appearance', themeAuto: 'Match device', themeLight: 'Light', themeDark: 'Dark', currency: 'Currency', security: 'Security', pinLock: 'PIN lock',
     pinSet: 'Set PIN', pinChange: 'Change PIN', pinRemove: 'Turn off lock', bio: 'Unlock with fingerprint / Face ID',
     bioUnsupported: 'This device or browser does not support biometrics.', bioNeedPin: 'Set a PIN first.',
     autoLock: 'Lock when leaving the app', autoLockNow: 'Immediately', autoLock1: 'After 1 minute', autoLock5: 'After 5 minutes',
@@ -190,7 +190,7 @@ const S = {
     progress: '{i} / {n}', learnedN: 'Appris — {n} opérations similaires corrigées aussi.',
     search: 'Rechercher…', allMonths: 'Tous les mois', editCat: 'Changer de catégorie', excluded: 'exclu',
     statusReview: 'à revoir', noTx: 'Aucune opération correspondante.',
-    language: 'Langue', currency: 'Devise', security: 'Sécurité', pinLock: 'Verrouillage par code',
+    language: 'Langue', theme: 'Apparence', themeAuto: 'Comme l’appareil', themeLight: 'Clair', themeDark: 'Sombre', currency: 'Devise', security: 'Sécurité', pinLock: 'Verrouillage par code',
     pinSet: 'Définir un code', pinChange: 'Changer le code', pinRemove: 'Désactiver', bio: 'Déverrouiller par empreinte / Face ID',
     bioUnsupported: 'Cet appareil ou navigateur ne prend pas en charge la biométrie.', bioNeedPin: 'Définissez d\'abord un code.',
     autoLock: 'Verrouiller en quittant l\'appli', autoLockNow: 'Immédiatement', autoLock1: 'Après 1 minute', autoLock5: 'Après 5 minutes',
@@ -245,6 +245,7 @@ export const CAT_NAMES = {
   cash:      { vi: 'Rút tiền mặt', en: 'Cash withdrawal', fr: 'Retraits' },
   gifts:     { vi: 'Quà & từ thiện', en: 'Gifts & charity', fr: 'Cadeaux & dons' },
   kids:      { vi: 'Con cái', en: 'Kids', fr: 'Enfants' },
+  wallet:    { vi: 'Nạp ví điện tử', en: 'E-wallet top-ups', fr: 'Recharges de portefeuille' },
   debtpay:   { vi: 'Trả nợ / trả góp', en: 'Debt & instalments', fr: 'Crédits & paiements fractionnés' },
 };
 

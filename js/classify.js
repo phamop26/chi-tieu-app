@@ -29,15 +29,16 @@ export const BUILTIN_CATS = [
   { id: 'gifts', icon: '🎁', kind: 'out', lib: true },
   { id: 'kids', icon: '🧸', kind: 'out', lib: true },
   { id: 'debtpay', icon: '🧾', kind: 'out', lib: true },
+  { id: 'wallet', icon: '👛', kind: 'out', lib: true },
 ];
 
 // Từ khóa đã bỏ dấu, chữ thường. Từ khóa dài hơn được ưu tiên (vd "grabfood" thắng "grab").
 const KEYWORDS = {
-  food: ['grabfood', 'grab food', 'shopeefood', 'shopee food', 'baemin', 'gofood', 'befood', 'be food', 'highlands', 'highland coffee', 'phuc long', 'starbucks', 'the coffee house', 'katinat', 'cong caphe', 'trung nguyen', 'cafe', 'coffee', 'ca phe', 'tra sua', 'gong cha', 'koi the', 'kfc', 'lotteria', 'jollibee', 'mcdonald', 'mcdonalds', 'pizza', 'dominos', 'texas chicken', 'popeyes', 'pho', 'bun bo', 'com tam', 'banh mi', 'nha hang', 'restaurant', 'quan an', 'an trua', 'an toi', 'an sang', 'bakery', 'tous les jours', 'paris baguette', 'bach hoa xanh', 'winmart', 'coopmart', 'co op', 'coop food', 'vinmart', 'lotte mart', 'aeon', 'emart', 'big c', 'go mart', 'circle k', 'familymart', 'gs25', 'ministop', '7 eleven', '7eleven', 'kichi', 'haidilao', 'gogi', 'sushi', 'bbq', 'lau', 'dimsum', 'boulangerie', 'carrefour', 'monoprix', 'franprix', 'leclerc', 'auchan', 'lidl', 'intermarche', 'supermarche', 'epicerie', 'brasserie', 'uber eats', 'deliveroo', 'grocery', 'supermarket'],
-  transport: ['grab', 'grabcar', 'grabbike', 'be group', 'xanh sm', 'gsm', 'gojek', 'taxi', 'mai linh', 'vinasun', 'uber', 'petrolimex', 'xang dau', 'do xang', 'pvoil', 'cua hang xang', 'vetc', 'epass', 'thu phi', 'gui xe', 'parking', 'vexere', 'futa', 'phuong trang', 'metro', 'xe buyt', 'sncf', 'ratp', 'navigo', 'essence', 'total energies', 'peage', 'bolt', 'lyft'],
+  food: ['tocotoco', 'mixue', 'phe la', 'pizza 4p', 'the pizza company', 'manwah', 'pho 24', 'kingfoodmart', 'satra', 'winmart plus', 'cooky', 'loship', 'bun cha', 'com ga', 'banh cuon', 'quan nhau', 'bia', 'tra chanh', 'an vat', 'di cho', 'grabfood', 'grab food', 'shopeefood', 'shopee food', 'baemin', 'gofood', 'befood', 'be food', 'highlands', 'highland coffee', 'phuc long', 'starbucks', 'the coffee house', 'katinat', 'cong caphe', 'trung nguyen', 'cafe', 'coffee', 'ca phe', 'tra sua', 'gong cha', 'koi the', 'kfc', 'lotteria', 'jollibee', 'mcdonald', 'mcdonalds', 'pizza', 'dominos', 'texas chicken', 'popeyes', 'pho', 'bun bo', 'com tam', 'banh mi', 'nha hang', 'restaurant', 'quan an', 'an trua', 'an toi', 'an sang', 'bakery', 'tous les jours', 'paris baguette', 'bach hoa xanh', 'winmart', 'coopmart', 'co op', 'coop food', 'vinmart', 'lotte mart', 'aeon', 'emart', 'big c', 'go mart', 'circle k', 'familymart', 'gs25', 'ministop', '7 eleven', '7eleven', 'kichi', 'haidilao', 'gogi', 'sushi', 'bbq', 'lau', 'dimsum', 'boulangerie', 'carrefour', 'monoprix', 'franprix', 'leclerc', 'auchan', 'lidl', 'intermarche', 'supermarche', 'epicerie', 'brasserie', 'uber eats', 'deliveroo', 'grocery', 'supermarket'],
+  transport: ['bike', 'xe om', 'grabexpress', 'giao hang', 'ahamove', 'lalamove', 'ghtk', 'giao hang tiet kiem', 'viettel post', 'j t express', 'xang', 'rua xe', 'sua xe', 'bao duong', 'grab', 'grabcar', 'grabbike', 'be group', 'xanh sm', 'gsm', 'gojek', 'taxi', 'mai linh', 'vinasun', 'uber', 'petrolimex', 'xang dau', 'do xang', 'pvoil', 'cua hang xang', 'vetc', 'epass', 'thu phi', 'gui xe', 'parking', 'vexere', 'futa', 'phuong trang', 'metro', 'xe buyt', 'sncf', 'ratp', 'navigo', 'essence', 'total energies', 'peage', 'bolt', 'lyft'],
   shopping: ['shopee', 'lazada', 'tiki', 'tiktok shop', 'sendo', 'amazon', 'uniqlo', 'zara', 'h m', 'the gioi di dong', 'tgdd', 'dien may xanh', 'fpt shop', 'cellphones', 'hoang ha mobile', 'nguyen kim', 'ikea', 'decathlon', 'muji', 'miniso', 'daiso', 'canifa', 'routine', 'yody', 'aliexpress', 'temu', 'fnac', 'darty', 'mua sam', 'shop', 'store'],
-  bills: ['evn', 'dien luc', 'tien dien', 'sawaco', 'cap nuoc', 'tien nuoc', 'nuoc sach', 'vnpt', 'viettel', 'mobifone', 'vinaphone', 'fpt telecom', 'internet', 'cuoc di dong', 'nap tien dien thoai', 'hoa don', 'thanh toan hoa don', 'truyen hinh', 'vtvcab', 'k plus', 'phi quan ly', 'chung cu', 'edf', 'engie', 'orange', 'free mobile', 'sfr', 'bouygues', 'facture', 'electricity', 'water bill', 'utility'],
-  fun: ['netflix', 'spotify', 'youtube premium', 'youtube', 'apple music', 'cgv', 'galaxy cinema', 'lotte cinema', 'bhd', 'beta cinemas', 'cinestar', 'steam', 'playstation', 'nintendo', 'garena', 'ticketbox', 'karaoke', 'disney', 'fpt play', 'vieon', 'cinema', 'concert', 'game', 'xbox', 'canal plus', 'deezer'],
+  bills: ['icloud', 'google one', 'google storage', 'apple com bill', 'thue bao', 'goi cuoc', 'data 4g', 'nap the', 'mytv', 'fpt play box', 'tien dien thoai', 'tien mang', 'phi gui xe thang', 'evn', 'dien luc', 'tien dien', 'sawaco', 'cap nuoc', 'tien nuoc', 'nuoc sach', 'vnpt', 'viettel', 'mobifone', 'vinaphone', 'fpt telecom', 'internet', 'cuoc di dong', 'nap tien dien thoai', 'hoa don', 'thanh toan hoa don', 'truyen hinh', 'vtvcab', 'k plus', 'phi quan ly', 'chung cu', 'edf', 'engie', 'orange', 'free mobile', 'sfr', 'bouygues', 'facture', 'electricity', 'water bill', 'utility'],
+  fun: ['chatgpt', 'openai', 'canva', 'capcut', 'tinder', 'bumble', 'gym', 'yoga', 'boi loi', 'bida', 'bowling', 've xem phim', 'galaxy play', 'nhaccuatui', 'zing mp3', 'netflix', 'spotify', 'youtube premium', 'youtube', 'apple music', 'cgv', 'galaxy cinema', 'lotte cinema', 'bhd', 'beta cinemas', 'cinestar', 'steam', 'playstation', 'nintendo', 'garena', 'ticketbox', 'karaoke', 'disney', 'fpt play', 'vieon', 'cinema', 'concert', 'game', 'xbox', 'canal plus', 'deezer'],
   family: ['cho me', 'gui me', 'bieu me', 'cho bo', 'gui bo', 'bieu bo', 'cho ba', 'gui ba', 'cho ba me', 'gui ba me', 'bieu ong ba', 'cho ong ba', 'gui gia dinh', 'gia dinh', 'cho con', 'gui con', 'tien tieu vat', 'maman', 'papa', 'famille', 'mom', 'dad', 'cho vo', 'cho chong', 'gui vo', 'gui chong'],
   invest: ['chung khoan', 'ssi', 'vndirect', 'tcbs', 'vps', 'mbs', 'hsc', 'vcbs', 'fmarket', 'dragon capital', 'vinacapital', 'ccq', 'chung chi quy', 'gui tiet kiem', 'tiet kiem', 'tich luy', 'mo so tiet kiem', 'dau tu', 'vang sjc', 'mua vang', 'savings', 'invest', 'investment', 'livret', 'assurance vie', 'boursorama', 'etoro'],
   income: ['luong', 'tra luong', 'salary', 'payroll', 'thuong', 'bonus', 'hoan tien', 'refund', 'cashback', 'lai tien gui', 'tra lai', 'interest', 'salaire', 'remboursement', 'loi tuc', 'co tuc', 'dividend'],
@@ -54,18 +55,50 @@ const KEYWORDS = {
   kids: ['bim', 'sua bot', 'kids', 'tre em', 'do choi', 'mam non', 'concung', 'con cung', 'bibo mart', 'kids plaza'],
   debtpay: ['spaylater', 'shopee paylater', 'spay later', 'tra gop', 'home credit', 'fe credit', 'kredivo', 'fundiin', 'tra no vay', 'tra no khoan vay', 'mcredit', 'loan repayment', 'echeance pret'],
   self: ['chuyen tien noi bo', 'tu tai khoan cua toi', 'own account', 'between accounts', 'virement interne', 'tat toan', 'thanh toan the tin dung', 'tt the tin dung', 'thanh toan du no the', 'tra no the tin dung', 'tra the tin dung', 'credit card payment', 'card payment received', 'payment received', 'payment thank you', 'remboursement carte'],
+  wallet: ['nap tien vi', 'nap vi', 'nap tien momo', 'nap momo', 'nap tien zalopay', 'nap zalopay', 'nap shopeepay', 'nap tien shopeepay', 'nap tien vnpay', 'top up', 'topup', 'nap tien dien tu'],
   transfer: ['chuyen tien', 'chuyen khoan', 'ck', 'transfer', 'ibft', 'napas', 'virement', 'qr', 'momo', 'zalopay', 'vnpay', 'paypal'],
 };
 
 // Từ không mang ý nghĩa nhận diện (để rút "khóa" của người nhận/cửa hàng)
 const STOP = new Set('thanh toan tt chuyen tien khoan ck ft ma gd giao dich qr pos tai den tu ref trace so tk tai khoan mbvcb ibft napas vcb tcb acb mb bidv vietinbank vpbank tpbank ct nd noi dung payment pay to from for the de du la visa mastercard master card debit credit vnd ngay luc qua app web online ecom sang via va and of tren mua hang tai cua hang ltd co jsc cty cong ty tnhh vn vietnam hcm hn ho chi minh ha noi sg paris cb carte achat prlv sepa vir inst ecom www com'.split(' '));
 
+// Từ xuất hiện ở quá nhiều giao dịch (thường là tên chủ tài khoản, tên ngân hàng) → bỏ qua khi nhận diện.
+// Nếu không, mọi khoản chuyển tiền có tên của chính bạn sẽ bị coi là "cùng một người nhận".
+let dynStop = new Set();
+export function setCorpus(descs) {
+  dynStop = new Set();
+  if (descs.length < 20) return;
+  const df = new Map();
+  for (const d of descs) for (const w of new Set(norm(d).split(' '))) if (w.length > 1 && !/\d/.test(w)) df.set(w, (df.get(w) || 0) + 1);
+  const kw = new Set(Object.values(KEYWORDS).flat().flatMap(k => k.split(' ')));
+  for (const [w, n] of df) if (n / descs.length > 0.25 && !kw.has(w)) dynStop.add(w); // giữ lại từ là tên cửa hàng/dịch vụ
+}
+const isStop = w => STOP.has(w) || dynStop.has(w);
+
+// Làm sạch nội dung theo định dạng sao kê ngân hàng VN: bỏ mã tham chiếu, phần "CT tu ... toi ... tai ..."
+export function cleanText(desc) {
+  let s = ' ' + norm(desc) + ' ';
+  s = s.replace(/ (mbvcb|ibft|ft|tt|pos|ref|trace|ma gd|so gd) \d+/g, ' ');
+  s = s.replace(/ ct tu .*$/, ' ').replace(/ tu tk .*$/, ' ').replace(/ trace .*$/, ' ');
+  return s.replace(/\s+/g, ' ').trim();
+}
+// Tên người nhận trong khoản chuyển tiền (nếu có)
+function recipient(desc) {
+  const n = ' ' + norm(desc) + ' ';
+  const m = n.match(/ toi (?:\d+ )?([a-z]+(?: [a-z]+){1,4}) tai /) || n.match(/ (?:ck|chuyen tien|chuyen khoan) (?:den|cho|toi) ([a-z]+(?: [a-z]+){1,4})/);
+  if (!m) return '';
+  const name = m[1].split(' ').filter(w => !isStop(w)).slice(0, 4).join(' ');
+  return name.split(' ').length >= 2 ? name : '';
+}
+
 export function merchantKey(desc) {
-  const toks = norm(desc).split(' ').filter(w => w && !STOP.has(w) && !/\d/.test(w) && w.length > 1);
+  const r = recipient(desc);
+  if (r) return 'to ' + r;
+  const toks = cleanText(desc).split(' ').filter(w => w && !isStop(w) && !/\d/.test(w) && w.length > 1);
   return toks.slice(0, 4).join(' ');
 }
 function tokens(desc) {
-  return [...new Set(norm(desc).split(' ').filter(w => w.length > 1 && !STOP.has(w) && !/\d/.test(w)))];
+  return [...new Set(cleanText(desc).split(' ').filter(w => w.length > 1 && !isStop(w) && !/\d/.test(w)))];
 }
 
 export function emptyModel() { return { merchants: {}, tokens: {} }; }
@@ -77,7 +110,8 @@ function keywordMatch(text, amount) {
     if (cat === 'income' && amount < 0) continue;
     for (const k of list) if (padded.includes(' ' + k + ' ')) hits.push({ cat, len: k.length });
   }
-  hits.sort((a, b) => b.len - a.len);
+  // "chuyển tiền / chuyển khoản" chỉ là từ chung → luôn xếp sau từ khóa cụ thể (vd "cho me")
+  hits.sort((a, b) => (a.cat === 'transfer') - (b.cat === 'transfer') || b.len - a.len);
   return hits;
 }
 
@@ -89,7 +123,7 @@ function topOf(counts) {
 
 // Trả về { cat, conf, alts: [catId,...] }
 export function classify(tx, model, catExists) {
-  const text = norm(tx.desc);
+  const text = cleanText(tx.desc);
   const key = merchantKey(tx.desc);
   const alts = [];
   const sign = tx.amount < 0 ? 'out' : 'in';

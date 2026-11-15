@@ -1,6 +1,8 @@
 // Chạy trước app (viết kiểu cũ để máy đời cũ cũng chạy được).
 // Nếu app không khởi động được, hiện lỗi ra màn hình thay vì để trắng trang.
 (function () {
+  // Áp giao diện sáng/tối đã chọn ngay từ đầu để không bị nháy màu
+  try { var th = localStorage.getItem('theme'); if (th === 'light' || th === 'dark') document.documentElement.setAttribute('data-theme', th); } catch (e) { /* ignore */ }
   var errors = [];
   function iosVersion() {
     var m = navigator.userAgent.match(/OS (\d+)_(\d+)/);
