@@ -28,6 +28,7 @@ export const BUILTIN_CATS = [
   { id: 'cash', icon: '💵', kind: 'out', lib: true },
   { id: 'gifts', icon: '🎁', kind: 'out', lib: true },
   { id: 'kids', icon: '🧸', kind: 'out', lib: true },
+  { id: 'debtpay', icon: '🧾', kind: 'out', lib: true },
 ];
 
 // Từ khóa đã bỏ dấu, chữ thường. Từ khóa dài hơn được ưu tiên (vd "grabfood" thắng "grab").
@@ -51,7 +52,8 @@ const KEYWORDS = {
   cash: ['rut tien mat', 'rut tien', 'atm', 'cash withdrawal', 'withdrawal', 'retrait', 'dab'],
   gifts: ['tu thien', 'quyen gop', 'ung ho', 'donation', 'mung cuoi', 'dam cuoi', 'tien mung', 'qua tang', 'gift', 'li xi', 'mung tho'],
   kids: ['bim', 'sua bot', 'kids', 'tre em', 'do choi', 'mam non', 'concung', 'con cung', 'bibo mart', 'kids plaza'],
-  self: ['chuyen tien noi bo', 'tu tai khoan cua toi', 'own account', 'between accounts', 'virement interne', 'tat toan'],
+  debtpay: ['spaylater', 'shopee paylater', 'spay later', 'tra gop', 'home credit', 'fe credit', 'kredivo', 'fundiin', 'tra no vay', 'tra no khoan vay', 'mcredit', 'loan repayment', 'echeance pret'],
+  self: ['chuyen tien noi bo', 'tu tai khoan cua toi', 'own account', 'between accounts', 'virement interne', 'tat toan', 'thanh toan the tin dung', 'tt the tin dung', 'thanh toan du no the', 'tra no the tin dung', 'tra the tin dung', 'credit card payment', 'card payment received', 'payment received', 'payment thank you', 'remboursement carte'],
   transfer: ['chuyen tien', 'chuyen khoan', 'ck', 'transfer', 'ibft', 'napas', 'virement', 'qr', 'momo', 'zalopay', 'vnpay', 'paypal'],
 };
 
@@ -130,7 +132,7 @@ export function classify(tx, model, catExists) {
     if (best.cat === 'transfer') conf = 0.4;            // chuyển cho ai? → hỏi người dùng
     else if (!others.length || (others.length === 1 && others[0] === 'transfer')) conf = 0.82;
     else conf = outHits[1].len < best.len - 2 ? 0.72 : 0.55;
-    if (best.cat === 'self') conf = 0.6;
+    if (best.cat === 'self') conf = best.len >= 12 ? 0.85 : 0.6; // cụm dài (vd "thanh toan the tin dung") là chắc chắn
     if (vote && vote.cat === best.cat) conf = Math.min(0.95, conf + 0.12);
     else if (vote && vote.share > 0.75 && vote.n >= 1) return { cat: vote.cat, conf: 0.75, alts: [best.cat, ...alts] };
     return { cat: best.cat, conf, alts };

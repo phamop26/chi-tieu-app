@@ -245,9 +245,14 @@ export const CAT_NAMES = {
   cash:      { vi: 'Rút tiền mặt', en: 'Cash withdrawal', fr: 'Retraits' },
   gifts:     { vi: 'Quà & từ thiện', en: 'Gifts & charity', fr: 'Cadeaux & dons' },
   kids:      { vi: 'Con cái', en: 'Kids', fr: 'Enfants' },
+  debtpay:   { vi: 'Trả nợ / trả góp', en: 'Debt & instalments', fr: 'Crédits & paiements fractionnés' },
 };
 
 let lang = 'vi';
+// Cho phép phần khác (vd Tài chính) bổ sung chữ cho cả 3 ngôn ngữ
+export function addStrings(extra) {
+  for (const l of Object.keys(extra)) Object.assign(S[l], extra[l]);
+}
 export function setLang(l) { lang = S[l] ? l : 'vi'; document.documentElement.lang = lang; }
 export function getLang() { return lang; }
 export const LOCALES = { vi: 'vi-VN', en: 'en-US', fr: 'fr-FR' };

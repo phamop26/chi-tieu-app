@@ -1,6 +1,6 @@
 // Lưu trữ trên máy bằng IndexedDB — không có máy chủ.
 const DB_NAME = 'chitieu';
-const VERSION = 1;
+const VERSION = 2;
 let dbPromise = null;
 
 // Safari đôi khi "treo" lần mở IndexedDB đầu tiên: gọi nhẹ indexedDB.databases() cho đến khi nó trả lời.
@@ -25,10 +25,10 @@ function open() {
       const req = indexedDB.open(DB_NAME, VERSION);
       req.onupgradeneeded = () => {
         const d = req.result;
-        d.createObjectStore('tx', { keyPath: 'id' });
-        d.createObjectStore('cats', { keyPath: 'id' });
-        d.createObjectStore('imports', { keyPath: 'id' });
-        d.createObjectStore('kv', { keyPath: 'k' });
+        // v1: giao dịch, mục, lần nhập, cài đặt · v2: tài khoản (thẻ, ví trả sau, tiết kiệm, đầu tư) và mục tiêu
+        for (const [name, key] of [['tx', 'id'], ['cats', 'id'], ['imports', 'id'], ['kv', 'k'], ['accounts', 'id'], ['goals', 'id']]) {
+          if (!d.objectStoreNames.contains(name)) d.createObjectStore(name, { keyPath: key });
+        }
       };
       req.onsuccess = () => { clearTimeout(timer); resolve(req.result); };
       req.onerror = () => { clearTimeout(timer); reject(req.error || new Error('IndexedDB error')); };
@@ -67,6 +67,6 @@ export async function wipeEverything() {
     const r = indexedDB.deleteDatabase(DB_NAME);
     r.onsuccess = r.onerror = r.onblocked = () => res();
   });
-  try { if (window.caches) for (const k of await caches.keys()) if (k.startsWith('shared')) await caches.delete(k); } catch (e) { /* ignore */ }
+  try { if (window.caches) for (const k of await caches.keys()) if (k.startsWith('shared') || k === 'gen') await caches.delete(k); } catch (e) { /* ignore */ }
   try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* ignore */ }
 }

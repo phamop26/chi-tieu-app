@@ -233,16 +233,30 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: lef
 .switch:checked::after { transform: translateX(20px); }
 .switch:disabled { opacity: .4; }
 
+/* Tài chính */
+.hero-row.two { grid-template-columns: repeat(2, 1fr); }
+.row-gap.left { justify-content: flex-start; margin-top: 0; }
+.insights li.urgent { color: var(--danger); font-weight: 600; }
+.cb-fill.warn { background: var(--danger); }
+.fin-item { display: flex; align-items: center; gap: 8px; }
+.fin-item .li { flex: 1; min-width: 0; }
+.fin-item .li-main .cb-track { margin-top: 6px; }
+.paid-btn { flex: none; }
+.type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.type-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); font-size: .875rem; text-align: center; min-height: 88px; justify-content: center; }
+.type-btn span { font-size: 1.75rem; }
+.type-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* Tabs */
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid; grid-template-columns: repeat(6, 1fr);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
 }
-.tab { position: relative; background: none; border: 0; height: var(--tab-h); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); font-size: .6875rem; padding: 0 2px; }
+.tab { position: relative; background: none; border: 0; height: var(--tab-h); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); font-size: .625rem; padding: 0 1px; }
 .tab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .tab.on { color: var(--accent); font-weight: 600; }
 .tab span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

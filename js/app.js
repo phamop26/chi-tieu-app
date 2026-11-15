@@ -5,6 +5,7 @@ import { BUILTIN_CATS, classify, learn, merchantKey, emptyModel, REVIEW_THRESHOL
 import { monthOf, shiftMonth, monthlySeries, findRecurring, findAnomalies, buildInsights } from './insights.js';
 import * as lock from './lock.js';
 import { sampleCSV } from './sample.js';
+import { initFinance } from './finance.js';
 
 // ---------------- Trạng thái ----------------
 const $ = s => document.querySelector(s);
@@ -12,8 +13,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const ymNow = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 
 const S = {
-  txs: [], cats: [], imports: [], model: emptyModel(),
-  settings: { lang: 'vi', currency: 'VND', notif: false, autoLock: 60 },
+  txs: [], cats: [], imports: [], model: emptyModel(), accounts: [], goals: [],
+  settings: { lang: 'vi', currency: 'VND', notif: false, autoLock: 60, checkinDay: 1, saveDay: 6 },
   tab: 'overview', month: ymNow(), trendN: 6, trendCat: '',
   q: '', fCat: '', fMonth: '', txLimit: 150,
   skipped: new Set(), remember: true, locked: false,
@@ -68,6 +69,8 @@ async function load() {
   }
   S.txs = await db.getAll('tx');
   S.imports = await db.getAll('imports');
+  S.accounts = await db.getAll('accounts');
+  S.goals = await db.getAll('goals');
   S.model = await db.getKV('model', emptyModel());
   rebuildCatMap();
   if (S.txs.length) S.month = monthOf(S.txs.reduce((m, x) => (x.date > m ? x.date : m), ''));
@@ -96,8 +99,9 @@ function fnv(s) {
   return (h >>> 0).toString(36);
 }
 
-async function ingest(raw, source) {
+async function ingest(raw, source, account = null) {
   const importId = 'imp' + Date.now().toString(36);
+  const fromDebt = fin.isDebt(account);
   const existing = new Set(S.txs.map(x => x.id));
   const occ = {}; const added = []; let dups = 0;
   const catsBefore = new Set(S.cats.map(c => c.id));
@@ -107,14 +111,18 @@ async function ingest(raw, source) {
     occ[base] = (occ[base] || 0) + 1;
     const id = base + '.' + occ[base];
     if (existing.has(id)) { dups++; continue; }
-    const tx = { id, date: r.date, amount: r.amount, desc, importId };
+    const tx = { id, date: r.date, amount: r.amount, desc, importId, accountId: account ? account.id : null };
     applyClassification(tx);
+    // Sao kê thẻ tín dụng / ví trả sau: tiền vào là khoản trả nợ (đã tính khi chi), trừ khi là hoàn tiền
+    if (fromDebt && tx.amount > 0 && !/hoan tien|refund|rembours/.test(norm(desc))) {
+      tx.cat = 'self'; tx.conf = 0.9; tx.status = 'auto';
+    }
     added.push(tx);
   }
   if (added.length) {
     S.txs.push(...added);
     await db.putMany('tx', added);
-    const imp = { id: importId, name: source, at: new Date().toISOString(), count: added.length, dups };
+    const imp = { id: importId, name: source, at: new Date().toISOString(), count: added.length, dups, accountId: account ? account.id : null };
     S.imports.push(imp); await db.put('imports', imp);
     S.month = monthOf(added.reduce((m, x) => (x.date > m ? x.date : m), ''));
   }
@@ -131,7 +139,9 @@ async function importFiles(files) {
     let txs = res.txs;
     if (res.needsMapping) { txs = await mappingDialog(res.rows); if (!txs) { hideToast(); continue; } }
     if (!txs || !txs.length) { toast(t('importNone')); continue; }
-    const r = await ingest(txs, file.name || 'statement');
+    hideToast();
+    const account = await fin.chooseAccount();
+    const r = await ingest(txs, file.name || 'statement', account);
     hideToast();
     render();
     showImportSummary(r);
@@ -201,6 +211,7 @@ function closeSheet(value) {
 
 const ICONS = {
   overview: '<path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/>',
+  finance: '<rect x="3.5" y="6" width="17" height="13" rx="2.5"/><path d="M3.5 10h17M15 14.5h2.5"/><path d="M7 6V4.8a1 1 0 0 1 1.2-1l9 1.6"/>',
   trends: '<path d="M4 19h16M7 16v-4M12 16V8M17 16v-6"/>',
   review: '<rect x="5" y="4" width="14" height="16" rx="3"/><path d="m9 12 2 2 4-4"/>',
   tx: '<path d="M5 7h14M5 12h14M5 17h9"/>',
@@ -210,8 +221,8 @@ const svgIcon = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</s
 
 function renderTabs() {
   const n = S.txs.filter(x => x.status === 'review').length;
-  $('#tabs').innerHTML = ['overview', 'trends', 'review', 'tx', 'settings'].map(k => {
-    const label = t({ overview: 'tabOverview', trends: 'tabTrends', review: 'tabReview', tx: 'tabTx', settings: 'tabSettings' }[k]);
+  $('#tabs').innerHTML = ['overview', 'trends', 'finance', 'review', 'tx', 'settings'].map(k => {
+    const label = t({ overview: 'tabOverview', trends: 'tabTrends', finance: 'tabFinance', review: 'tabReview', tx: 'tabTx', settings: 'tabSettings' }[k]);
     const badge = k === 'review' && n ? `<span class="badge">${n > 99 ? '99+' : n}</span>` : '';
     return `<button class="tab ${S.tab === k ? 'on' : ''}" data-act="tab" data-tab="${k}" aria-current="${S.tab === k ? 'page' : 'false'}">${svgIcon(k)}${badge}<span>${esc(label)}</span></button>`;
   }).join('');
@@ -221,7 +232,7 @@ function render() {
   document.title = t('appName');
   renderTabs();
   const v = $('#view');
-  const views = { overview: viewOverview, trends: viewTrends, review: viewReview, tx: viewTx, settings: viewSettings };
+  const views = { overview: viewOverview, trends: viewTrends, finance: fin.view, review: viewReview, tx: viewTx, settings: viewSettings };
   v.innerHTML = views[S.tab]();
   if (S.tab === 'review') attachSwipe();
   if (S.tab === 'trends') attachChart();
@@ -283,6 +294,7 @@ function viewOverview() {
       <div><span class="muted">${esc(t('txCount', { n: '' }).trim())}</span><b>${cur.count}</b></div>
     </div>
   </section>
+  ${fin.upcomingCard(true)}
   ${reviewN ? `<button class="review-banner card" data-act="tab" data-tab="review">
       <span class="rb-icon">🗂️</span><span><b>${esc(t('reviewBanner', { n: reviewN }))}</b><small>${esc(t('reviewBannerSub'))}</small></span><span class="rb-go">${esc(t('reviewNow'))} ›</span>
     </button>` : ''}
@@ -709,6 +721,9 @@ async function setupPin() {
   return true;
 }
 
+// ---------------- Tài chính ----------------
+const fin = initFinance({ S, db, esc, money, pct, monthLabel, openSheet, closeSheet, toast, download, render: () => render() });
+
 // ---------------- Sự kiện ----------------
 const actions = {
   'tab': el => { S.tab = el.dataset.tab; if (S.tab === 'tx') S.txLimit = 150; render(); window.scrollTo(0, 0); },
@@ -762,7 +777,7 @@ const actions = {
   },
   'privacy': (el, e) => { e.preventDefault(); openPrivacy(); },
   'export': () => {
-    const data = { app: 'chi-tieu', version: 1, exportedAt: new Date().toISOString(), txs: S.txs, cats: S.cats, imports: S.imports, model: S.model, settings: S.settings };
+    const data = { app: 'chi-tieu', version: 2, exportedAt: new Date().toISOString(), txs: S.txs, cats: S.cats, imports: S.imports, model: S.model, settings: S.settings, accounts: S.accounts, goals: S.goals };
     download(`chi-tieu-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data), 'application/json');
   },
   'restore': () => $('#restore-file').click(),
@@ -816,6 +831,8 @@ const actions = {
   },
 };
 
+Object.assign(actions, fin.actions);
+
 const changes = {
   remember: el => { S.remember = el.checked; },
   q: el => { S.q = el.value; S.txLimit = 150; $('#tx-list').innerHTML = txListHtml(); },
@@ -863,7 +880,9 @@ $('#restore-file').addEventListener('change', async e => {
     const data = JSON.parse(await f.text());
     if (data.app !== 'chi-tieu' || !Array.isArray(data.txs)) throw new Error('format');
     await db.clear('tx'); await db.clear('cats'); await db.clear('imports');
+    await db.clear('accounts'); await db.clear('goals');
     await db.putMany('tx', data.txs); await db.putMany('cats', data.cats); await db.putMany('imports', data.imports || []);
+    await db.putMany('accounts', data.accounts || []); await db.putMany('goals', data.goals || []);
     await db.setKV('model', data.model || emptyModel());
     await db.setKV('settings', { ...S.settings, ...(data.settings || {}) });
     await load(); render(); toast('✅');

@@ -1,11 +1,11 @@
 // Service worker: cho app chạy khi không có mạng + nhận file được chia sẻ (Android).
 // Không gửi bất kỳ dữ liệu nào đi đâu.
-const VERSION = 'v1.0.4';
+const VERSION = 'v1.1.0';
 const SHELL = `shell-${VERSION}`;
 const LIBS = 'libs-v1';
 const SHELL_FILES = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/boot.js', 'diag.html', 'js/app.js', 'js/i18n.js', 'js/db.js', 'js/parse.js', 'js/classify.js', 'js/insights.js', 'js/lock.js', 'js/sample.js',
+  'js/boot.js', 'diag.html', 'js/app.js', 'js/i18n.js', 'js/i18n-fin.js', 'js/finance.js', 'js/db.js', 'js/parse.js', 'js/classify.js', 'js/insights.js', 'js/lock.js', 'js/sample.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 const LIB_FILES = [
@@ -50,6 +50,15 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (e.request.method !== 'GET') return;
+
+  // File nhắc lịch do app tạo trên máy (không lấy từ mạng)
+  if (url.origin === self.location.origin && url.pathname.endsWith('/Chi-Tieu-nhac.ics')) {
+    e.respondWith((async () => {
+      const hit = await (await caches.open('gen')).match(url.origin + url.pathname);
+      return hit || new Response('Not found', { status: 404 });
+    })());
+    return;
+  }
 
   if (url.origin === 'https://cdnjs.cloudflare.com') {
     e.respondWith((async () => {
