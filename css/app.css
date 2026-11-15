@@ -43,6 +43,8 @@
 }
 
 * { box-sizing: border-box; }
+/* Phần tử có thuộc tính hidden phải luôn ẩn, kể cả khi CSS khác đặt display (lỗi bản 1–3: màn khóa che kín app) */
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--page); color: var(--ink);

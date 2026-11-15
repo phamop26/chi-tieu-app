@@ -1,6 +1,6 @@
 // Service worker: cho app chạy khi không có mạng + nhận file được chia sẻ (Android).
 // Không gửi bất kỳ dữ liệu nào đi đâu.
-const VERSION = 'v1.0.3';
+const VERSION = 'v1.0.4';
 const SHELL = `shell-${VERSION}`;
 const LIBS = 'libs-v1';
 const SHELL_FILES = [
