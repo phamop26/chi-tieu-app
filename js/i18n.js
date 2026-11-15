@@ -245,6 +245,7 @@ export const CAT_NAMES = {
   cash:      { vi: 'Rút tiền mặt', en: 'Cash withdrawal', fr: 'Retraits' },
   gifts:     { vi: 'Quà & từ thiện', en: 'Gifts & charity', fr: 'Cadeaux & dons' },
   kids:      { vi: 'Con cái', en: 'Kids', fr: 'Enfants' },
+  subs:      { vi: 'Gói đăng ký & AI', en: 'Subscriptions & AI', fr: 'Abonnements & IA' },
   wallet:    { vi: 'Nạp ví điện tử', en: 'E-wallet top-ups', fr: 'Recharges de portefeuille' },
   debtpay:   { vi: 'Trả nợ / trả góp', en: 'Debt & instalments', fr: 'Crédits & paiements fractionnés' },
 };

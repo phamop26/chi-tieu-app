@@ -432,3 +432,16 @@ svg.mini .base { stroke: var(--base); }
 .sec-row .sec-title { margin: 0; }
 .row-gap.tight { margin: 0; gap: 4px; }
 .iou-total { padding: 10px 0 6px; border-top: 1px solid var(--line); }
+
+/* Bản 8: gói đăng ký */
+.subs .subs-sum { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.subs .list > li + li .li { border-top: 1px solid var(--line); }
+.subs-found { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
+.subs-found .set-row { min-height: 0; padding: 8px 0; }
+.warn-text { color: var(--danger); font-weight: 600; }
+.two-col { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+/* Hũ chi tiêu */
+.jar-row { display: flex; gap: 12px; align-items: center; padding: 8px 0; }
+.cb-fill.good { background: var(--good); }
+.jar-edit { display: grid; grid-template-columns: 32px 1fr 72px 16px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.jar-edit input { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px; min-height: 44px; width: 100%; }

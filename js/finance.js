@@ -24,6 +24,7 @@ function dueIn(y, m, day) { return new Date(y, m, Math.min(day, lastDay(y, m)));
 
 export function initFinance(ctx) {
   const { S, db, esc, money, pct, openSheet, closeSheet, toast, render, download } = ctx;
+  const subs = ctx.subs;
   const accById = id => S.accounts.find(a => a.id === id);
   const shortDate = d => d.toLocaleDateString(locale(), { day: 'numeric', month: 'short' });
 
@@ -234,6 +235,7 @@ export function initFinance(ctx) {
       const days = daysBetween(parseYmd(o.date), today);
       if (o.dir === 'in' && days >= 14) items.push({ k: 60, icon: '🤝', text: t('iouRemind', { p: o.person, a: money(o.amount), d: days }) });
     }
+    if (subs) items.push(...subs.upcomingItems());
     return items.sort((a, b) => a.k - b.k);
   }
 
@@ -295,7 +297,7 @@ export function initFinance(ctx) {
     const by = type => S.accounts.filter(a => a.type === type);
     return `
     <header class="top"><span class="brand">${esc(t('tabFinance'))}</span><button class="btn small primary" data-act="fin-add">＋ ${esc(t('fAdd'))}</button></header>
-    ${empty ? `<section class="welcome"><div class="welcome-art">🧭</div><p>${esc(t('fEmpty'))}</p><button class="btn primary big" data-act="fin-add">＋ ${esc(t('fAdd'))}</button><button class="btn ghost" data-act="iou-split">🧾 ${esc(t('iouSplit'))}</button></section>` : `
+    ${empty ? `<section class="welcome"><div class="welcome-art">🧭</div><p>${esc(t('fEmpty'))}</p><button class="btn primary big" data-act="fin-add">＋ ${esc(t('fAdd'))}</button><button class="btn ghost" data-act="iou-split">🧾 ${esc(t('iouSplit'))}</button></section>${subs ? subs.section() : ''}` : `
     <section class="hero card">
       <div class="hero-label">${esc(t('fNetWorth'))}</div>
       <div class="hero-value">${esc(money(tot.net))}</div>
@@ -317,6 +319,7 @@ export function initFinance(ctx) {
     ${section(t('fInvestSec'), by('invest').map(itemHtml))}
     ${by('invest').length ? `<p class="muted small">${esc(t('fNoAdvice'))}</p>` : ''}
     ${section(t('fBankSec'), by('bank').map(itemHtml))}
+    ${subs ? subs.section() : ''}
     ${iouSection()}
     ${hist.length >= 2 ? `<details class="card table-view"><summary>${esc(t('fNwHistory'))}</summary><table><tbody>${hist.map((h, i) => `<tr><td>${esc(ctx.monthLabel(h.ym))}</td><td class="num">${esc(money(h.v))}</td><td class="num muted">${i ? esc((h.v - hist[i - 1].v >= 0 ? '+' : '−') + money(Math.abs(h.v - hist[i - 1].v))) : ''}</td></tr>`).join('')}</tbody></table></details>` : ''}
     `}`;
@@ -455,10 +458,11 @@ export function initFinance(ctx) {
     };
     const monthDay = day => (day <= 28 ? day : day === 31 ? -1 : 28);
     const events = [];
-    const ev = ({ uid, start, summary, desc, monthly, alarms }) => {
+    const ev = ({ uid, start, summary, desc, monthly, yearly, alarms }) => {
       const end = new Date(start); end.setDate(end.getDate() + 1);
       const l = ['BEGIN:VEVENT', `UID:${uid}@chi-tieu-app`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${dstr(start)}`, `DTEND;VALUE=DATE:${dstr(end)}`];
       if (monthly) l.push(`RRULE:FREQ=MONTHLY;BYMONTHDAY=${monthDay(monthly)}`);
+      else if (yearly) l.push('RRULE:FREQ=YEARLY');
       l.push(`SUMMARY:${esc2(summary)}`);
       if (desc) l.push(`DESCRIPTION:${esc2(desc)}`);
       l.push('TRANSP:TRANSPARENT');
@@ -472,6 +476,7 @@ export function initFinance(ctx) {
       if (DEBT.includes(a.type) && a.dueDay) ev({ uid: 'pay-' + a.id, start: nextDay(a.dueDay), monthly: a.dueDay, summary: t('calPay', { name: a.name }), desc: t('calPayDesc'), alarms: ['-P2DT15H', 'PT9H'] });
       if (a.type === 'savings' && a.maturity && parseYmd(a.maturity) >= today) ev({ uid: 'mat-' + a.id, start: parseYmd(a.maturity), summary: t('calMature', { name: a.name }), alarms: ['-P2DT15H', 'PT9H'] });
     }
+    if (subs) subs.icsEvents(ev);
     const ci = S.settings.checkinDay || 1, sd = S.settings.saveDay || 6;
     ev({ uid: 'checkin', start: nextDay(ci), monthly: ci, summary: t('calCheckin'), alarms: ['PT20H'] });
     if (S.goals.length) ev({ uid: 'save', start: nextDay(sd), monthly: sd, summary: t('calSave'), desc: t('calSaveDesc'), alarms: ['PT9H'] });

@@ -7,6 +7,7 @@ import * as lock from './lock.js';
 import { sampleCSV } from './sample.js';
 import { initFinance } from './finance.js';
 import { initReport } from './report.js';
+import { initSubs } from './subs.js';
 import './i18n-v6.js';
 import './i18n-v7.js';
 
@@ -76,6 +77,7 @@ async function load() {
   S.accounts = await db.getAll('accounts');
   S.goals = await db.getAll('goals');
   S.ious = await db.getKV('ious', []);
+  S.subs = await db.getKV('subs', []);
   setCorpus(S.txs.map(x => x.desc));
   S.model = await db.getKV('model', emptyModel());
   rebuildCatMap();
@@ -354,6 +356,7 @@ function viewOverview() {
   ${rp.paceCard(S.month)}
   ${rp.savingsCard(S.month)}
   ${rp.budgetsCard(S.month)}
+  ${rp.jarsCard(S.month)}
   <section class="card">
     <div class="row-between"><h3>${esc(t('byCategory'))}</h3><small class="muted">${esc(t('tapForDetail'))}</small></div>
     <ul class="cat-bars">${cur.cats.map(c => `
@@ -366,7 +369,7 @@ function viewOverview() {
   </section>
   <section class="card">
     <h3>${esc(t('notes'))}</h3>
-    <ul class="insights">${[...rp.budgetInsights(S.month), ...list.map(i => ({ icon: i.icon, text: t(i.key, fmtParams(i.p)) }))].map(i => `<li><span class="ins-icon">${i.icon}</span><span>${esc(i.text)}</span></li>`).join('')}</ul>
+    <ul class="insights">${[...rp.budgetInsights(S.month), ...rp.jarInsights(S.month), ...list.map(i => ({ icon: i.icon, text: t(i.key, fmtParams(i.p)) }))].map(i => `<li><span class="ins-icon">${i.icon}</span><span>${esc(i.text)}</span></li>`).join('')}</ul>
   </section>` : `<p class="empty card">${esc(t('noData'))}</p>`}
   ${standalone ? '' : `<p class="hint">📲 ${esc(t('installHint'))}</p>`}`;
 }
@@ -793,6 +796,7 @@ function openCatEdit(id) {
     <label class="field">${esc(t('catName'))}<input id="ce-name" value="${esc(catName(c))}" maxlength="30"></label>
     <label class="field">${esc(t('catIcon'))}<input id="ce-icon" value="${esc(c.icon)}" maxlength="4"></label>
     <div class="emoji-row">${EMOJIS.map(e => `<button class="chip ${e === c.icon ? 'on' : ''}" data-act="ce-emoji" data-e="${e}">${e}</button>`).join('')}</div>
+    <label class="field">${esc(t('jarField'))}<select id="ce-jar">${rp.jars().map(j => `<option value="${j.id}" ${rp.jarOfCat(id) === j.id ? 'selected' : ''}>${j.icon} ${esc(rp.jarName(j))}</option>`).join('')}</select></label>
     <label class="field">${esc(t('catKind'))}<select id="ce-kind">${[['out', 'kindOut'], ['in', 'kindIn'], ['neutral', 'kindNeutral']].map(([v, k]) => `<option value="${v}" ${c.kind === v ? 'selected' : ''}>${esc(t(k))}</option>`).join('')}</select></label>
     <div class="row-gap">${id !== 'other' ? `<button class="btn danger" data-act="ce-del" data-cat="${esc(id)}" data-n="${n}">${esc(t('delete'))}</button>` : ''}
       <button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button>
@@ -898,6 +902,7 @@ function suggestManualCat() {
   const desc = $('#m-desc')?.value || '';
   if (!desc.trim()) return;
   const r = classify({ desc, amount: M.sign }, S.model, id => !!catMap[id]);
+  if (!catMap[r.cat] && r.conf >= 0.5) ensureCat(r.cat); // mục trong thư viện (vd Gói đăng ký & AI) → tạo khi cần
   if (catMap[r.cat] && manualCats().some(c => c.id === r.cat)) { M.cat = r.cat; drawManualCats(); }
 }
 function openManual(pre = {}) {
@@ -987,7 +992,8 @@ async function exportXlsx() {
 }
 
 // ---------------- Tài chính ----------------
-const fin = initFinance({ S, db, esc, money, pct, monthLabel, openSheet, closeSheet, toast, download, render: () => render() });
+const subs = initSubs({ S, db, esc, money, openSheet, closeSheet, toast, render: () => render() });
+const fin = initFinance({ S, db, esc, money, pct, monthLabel, openSheet, closeSheet, toast, download, subs, render: () => render() });
 const rp = initReport({ S, db, esc, money, pct, monthLabel, dateLabel, openSheet, closeSheet, toast, parseAmount: parseMoneyInput, kindOf, catMap: () => catMap, render: () => render() });
 
 // Bật Face ID: phải gọi ngay trong lần chạm của người dùng (yêu cầu của iPhone)
@@ -1091,7 +1097,7 @@ const actions = {
   'export-csv': exportCsv,
   'export-xlsx': exportXlsx,
   'export': () => {
-    const data = { app: 'chi-tieu', version: 2, exportedAt: new Date().toISOString(), txs: S.txs, cats: S.cats, imports: S.imports, model: S.model, settings: S.settings, accounts: S.accounts, goals: S.goals, ious: S.ious || [] };
+    const data = { app: 'chi-tieu', version: 2, exportedAt: new Date().toISOString(), txs: S.txs, cats: S.cats, imports: S.imports, model: S.model, settings: S.settings, accounts: S.accounts, goals: S.goals, ious: S.ious || [], subs: S.subs || [] };
     download(`chi-tieu-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data), 'application/json');
   },
   'restore': () => $('#restore-file').click(),
@@ -1122,6 +1128,8 @@ const actions = {
     if (name && name !== catName(c)) c.name = name;
     if (icon) c.icon = icon;
     c.kind = $('#ce-kind').value || c.kind;
+    const jar = $('#ce-jar')?.value;
+    if (jar) { S.settings.jarMap = { ...(S.settings.jarMap || {}) }; if (jar === rp.DEFAULT_MAP[c.id]) delete S.settings.jarMap[c.id]; else S.settings.jarMap[c.id] = jar; await saveSettings(); }
     await db.put('cats', c); closeSheet(); render();
   },
   'ce-del': async el => {
@@ -1157,7 +1165,7 @@ const actions = {
   },
 };
 
-Object.assign(actions, fin.actions, rp.actions);
+Object.assign(actions, fin.actions, rp.actions, subs.actions);
 
 const changes = {
   remember: el => { S.remember = el.checked; },
@@ -1228,6 +1236,7 @@ $('#restore-file').addEventListener('change', async e => {
     await db.putMany('tx', data.txs); await db.putMany('cats', data.cats); await db.putMany('imports', data.imports || []);
     await db.putMany('accounts', data.accounts || []); await db.putMany('goals', data.goals || []);
     await db.setKV('ious', data.ious || []);
+    await db.setKV('subs', data.subs || []);
     await db.setKV('model', data.model || emptyModel());
     await db.setKV('settings', { ...S.settings, ...(data.settings || {}) });
     await load(); render(); toast('✅');
@@ -1265,14 +1274,14 @@ async function takeSharedFiles() {
 
 // Bản 6 có bộ phân loại mới → xếp lại một lần các giao dịch chưa được người dùng xác nhận
 function upgradeClassifier() {
-  if ((S.settings.classifierVersion || 1) >= 2) return;
+  if ((S.settings.classifierVersion || 1) >= 3) return;
   for (const x of S.txs) {
     if (x.status === 'confirmed' || x.source === 'manual') continue;
     const before = x.cat + x.status;
     applyClassification(x);
     if (x.cat + x.status !== before) dirtyTx.add(x);
   }
-  S.settings.classifierVersion = 2;
+  S.settings.classifierVersion = 3;
   saveSettings(); persistSoon();
 }
 

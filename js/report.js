@@ -2,6 +2,8 @@
 import { t, locale, catName } from './i18n.js';
 import { shortLabel } from './classify.js';
 import { monthOf, shiftMonth } from './insights.js';
+import { norm } from './parse.js';
+import './i18n-v8.js';
 
 const pad = n => String(n).padStart(2, '0');
 const daysIn = ym => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).getDate(); };
@@ -147,6 +149,93 @@ export function initReport(ctx) {
     closeSheet(); render(); toast(t('budSaved'));
   }
 
+
+  // ---------- Hũ chi tiêu (6 hũ JARS) ----------
+  const DEFAULT_JARS = [
+    { id: 'nec', pct: 55, icon: '🏠' }, { id: 'lts', pct: 10, icon: '🏦', save: true }, { id: 'edu', pct: 10, icon: '📚' },
+    { id: 'play', pct: 10, icon: '🎉' }, { id: 'ffa', pct: 10, icon: '📈', save: true }, { id: 'give', pct: 5, icon: '🎁' },
+  ];
+  const DEFAULT_MAP = {
+    food: 'nec', transport: 'nec', bills: 'nec', housing: 'nec', health: 'nec', insurance: 'nec', kids: 'nec', fees: 'nec', cash: 'nec',
+    debtpay: 'nec', wallet: 'nec', other: 'nec', transfer: 'nec', pets: 'nec',
+    education: 'edu', subs: 'edu', shopping: 'play', fun: 'play', travel: 'play', beauty: 'play', family: 'give', gifts: 'give', invest: 'ffa',
+  };
+  const jars = () => S.settings.jars || DEFAULT_JARS;
+  const jarName = j => j.name || t('jar_' + j.id);
+  const jarOfCat = cat => (S.settings.jarMap || {})[cat] || DEFAULT_MAP[cat] || 'nec';
+  // "Đầu tư & tiết kiệm": khoản gửi tiết kiệm vào hũ Tiết kiệm dài hạn, còn lại vào Tự do tài chính
+  function jarOfTx(x) {
+    const j = jarOfCat(x.cat);
+    if (x.cat === 'invest' && !(S.settings.jarMap || {}).invest) return /tiet kiem|tich luy|savings|livret|so tk/.test(norm(x.desc)) ? 'lts' : 'ffa';
+    return j;
+  }
+  function jarBase(ym) {
+    if (S.settings.jarIncome > 0) return { v: S.settings.jarIncome, note: t('jarsBase', { a: money(S.settings.jarIncome) }) };
+    const cur = sumIn(inMonth(ym));
+    if (cur > 0) return { v: cur, note: t('jarsBase', { a: money(cur) }) };
+    const prev = sumIn(inMonth(shiftMonth(ym, -1)));
+    if (prev > 0) return { v: prev, note: t('jarsBasePrev', { a: money(prev) }) };
+    return { v: 0, note: t('jarsNoIncome') };
+  }
+  function jarUsage(ym) {
+    const used = {};
+    for (const x of inMonth(ym)) if (isOut(x)) { const j = jarOfTx(x); used[j] = (used[j] || 0) - x.amount; }
+    return used;
+  }
+  function jarsCard(ym) {
+    if (!inMonth(ym).length) return '';
+    const base = jarBase(ym), used = jarUsage(ym), q = monthProgress(ym);
+    return `<section class="card"><div class="row-between"><h3>🫙 ${esc(t('jarsTitle'))}</h3><button class="btn small ghost" data-act="jar-edit">${esc(t('jarsEdit'))}</button></div>
+      <p class="muted small" style="margin:-4px 0 8px">${esc(base.note)}</p>
+      <ul class="cat-bars">${jars().map(j => {
+        const alloc = base.v * j.pct / 100, u = used[j.id] || 0, r = alloc ? u / alloc : (u ? 1.5 : 0);
+        const status = j.save ? t('jarSaved', { a: money(u), b: money(alloc) }) : '/ ' + money(alloc) + ' · ' + (u > alloc ? '⚠️ ' + t('jarOver', { a: money(u - alloc) }) : t('jarLeft', { a: money(alloc - u) }));
+        const warn = !j.save && (r >= 1 || (r > q + 0.15 && isThisMonth(ym)));
+        return `<li><div class="dd-row jar-row"><span class="cb-icon">${j.icon || '🫙'}</span><span class="cb-main">
+          <span class="cb-top"><span class="cb-name">${esc(jarName(j))} <small class="muted">${j.pct}%</small></span><span class="cb-val">${esc(money(u))}</span></span>
+          <span class="cb-track ${j.save ? '' : 'budget'}"><span class="cb-fill ${j.save ? 'good' : warn ? 'warn' : ''}" style="width:${Math.min(100, Math.max(2, r * 100)).toFixed(1)}%"></span>${j.save ? '' : `<span class="cb-mark" style="left:${(q * 100).toFixed(1)}%"></span>`}</span>
+          <span class="cb-pct ${warn && r >= 1 ? 'over' : 'muted'}">${esc(status)}</span></span></div></li>`;
+      }).join('')}</ul>
+      <p class="muted small" style="margin:8px 0 0">${esc(t('jarsMapHint'))}</p></section>`;
+  }
+  function jarInsights(ym) {
+    const base = jarBase(ym); if (!base.v || !isThisMonth(ym)) return [];
+    const used = jarUsage(ym), q = monthProgress(ym), out = [];
+    for (const j of jars()) {
+      const alloc = base.v * j.pct / 100; if (!alloc) continue;
+      const r = (used[j.id] || 0) / alloc;
+      if (!j.save && r < 1 && r > q + 0.2) out.push({ icon: j.icon, text: t('jarsInsight', { j: jarName(j), p: pct(r), q: pct(q) }) });
+      if (j.save && q > 0.8 && r < 0.5) out.push({ icon: j.icon, text: t('jarsInsightSave', { j: jarName(j), p: pct(r) }) });
+    }
+    return out;
+  }
+  function openJars() {
+    const js = jars();
+    openSheet(`<h3>🫙 ${esc(t('jarsEditTitle'))}</h3>
+      ${js.map((j, i) => `<div class="jar-edit"><span class="cb-icon">${j.icon}</span><input class="je-name" data-i="${i}" maxlength="24" value="${esc(jarName(j))}"><input class="je-pct" data-i="${i}" type="number" inputmode="numeric" min="0" max="100" value="${j.pct}"><span>%</span></div>`).join('')}
+      <p class="muted small" id="je-sum"></p>
+      <label class="field">${esc(t('jarsFixed'))}<input id="je-income" inputmode="decimal" value="${S.settings.jarIncome ? esc(new Intl.NumberFormat(locale()).format(S.settings.jarIncome)) : ''}" placeholder="—"></label>
+      <div class="row-gap"><button class="btn ghost" data-act="jar-reset">${esc(t('jarsReset'))}</button><button class="btn ghost" data-act="sheet-close">${esc(t('cancel'))}</button><button class="btn primary" data-act="jar-save">${esc(t('save'))}</button></div>`);
+    const upd = () => {
+      const sum = [...document.querySelectorAll('.je-pct')].reduce((a, el) => a + (+el.value || 0), 0);
+      const el = document.getElementById('je-sum');
+      el.textContent = sum === 100 ? t('jarsSum', { p: sum + '%' }) : t('jarsSumBad', { p: sum + '%' });
+      el.className = sum === 100 ? 'muted small' : 'small warn-text';
+    };
+    document.querySelectorAll('.je-pct').forEach(el => el.addEventListener('input', upd)); upd();
+  }
+  async function saveJars() {
+    const js = jars().map((j, i) => {
+      const name = document.querySelector(`.je-name[data-i="${i}"]`).value.trim();
+      return { ...j, pct: +document.querySelector(`.je-pct[data-i="${i}"]`).value || 0, name: name && name !== t('jar_' + j.id) ? name : undefined };
+    });
+    const sum = js.reduce((a, j) => a + j.pct, 0);
+    if (sum !== 100) { toast(t('jarsSumBad', { p: sum + '%' })); return; }
+    const inc = ctx.parseAmount(document.getElementById('je-income').value || '');
+    S.settings.jars = js; S.settings.jarIncome = isNaN(inc) ? 0 : Math.abs(inc);
+    await db.setKV('settings', S.settings); closeSheet(); render(); toast(t('jarsSavedMsg'));
+  }
+
   // ---------- Trang chi tiết một mục ----------
   function miniBars(series, valueFmt) {
     const W = 320, H = 110, T = 16, B = 18, ph = H - T - B, col = W / series.length, bw = Math.min(26, col * 0.55);
@@ -261,6 +350,9 @@ export function initReport(ctx) {
     'rp-wrap': el => openWrapped(el.dataset.m || S.month),
     'rp-wrap-next': wrapNext,
     'rp-wrap-close': closeWrapped,
+    'jar-edit': openJars,
+    'jar-save': saveJars,
+    'jar-reset': async () => { delete S.settings.jars; delete S.settings.jarIncome; await db.setKV('settings', S.settings); closeSheet(); render(); },
   };
-  return { paceCard, attachPace, savingsCard, budgetsCard, budgetInsights, wrapBanner, actions };
+  return { paceCard, attachPace, savingsCard, budgetsCard, budgetInsights, wrapBanner, jarsCard, jarInsights, jars, jarName, jarOfCat, DEFAULT_MAP, actions };
 }

@@ -30,15 +30,44 @@ export const BUILTIN_CATS = [
   { id: 'kids', icon: '🧸', kind: 'out', lib: true },
   { id: 'debtpay', icon: '🧾', kind: 'out', lib: true },
   { id: 'wallet', icon: '👛', kind: 'out', lib: true },
+  { id: 'subs', icon: '🤖', kind: 'out', lib: true },
 ];
+
+// Danh mục dịch vụ đăng ký phổ biến (để nhận ra trong sao kê). kind: ai | app | media
+export const SUB_SERVICES = [
+  { id: 'claude', name: 'Claude', icon: '🧠', kind: 'ai', kw: ['anthropic', 'claude ai', 'claude'] },
+  { id: 'deepseek', name: 'DeepSeek', icon: '🐋', kind: 'ai', kw: ['deepseek'] },
+  { id: 'suno', name: 'Suno', icon: '🎵', kind: 'ai', kw: ['suno', 'suno ai', 'suno inc'] },
+  { id: 'chatgpt', name: 'ChatGPT', icon: '🤖', kind: 'ai', kw: ['openai', 'chatgpt'] },
+  { id: 'gemini', name: 'Google One / Gemini', icon: '✨', kind: 'ai', kw: ['gemini', 'google one', 'google storage'] },
+  { id: 'midjourney', name: 'Midjourney', icon: '🎨', kind: 'ai', kw: ['midjourney'] },
+  { id: 'perplexity', name: 'Perplexity', icon: '🔎', kind: 'ai', kw: ['perplexity'] },
+  { id: 'cursor', name: 'Cursor', icon: '⌨️', kind: 'ai', kw: ['cursor', 'anysphere'] },
+  { id: 'copilot', name: 'GitHub Copilot', icon: '🐙', kind: 'ai', kw: ['github', 'copilot'] },
+  { id: 'grok', name: 'Grok / X', icon: '✖️', kind: 'ai', kw: ['grok', 'x premium', 'x corp'] },
+  { id: 'elevenlabs', name: 'ElevenLabs', icon: '🗣️', kind: 'ai', kw: ['elevenlabs'] },
+  { id: 'notion', name: 'Notion', icon: '📓', kind: 'app', kw: ['notion'] },
+  { id: 'canva', name: 'Canva', icon: '🖌️', kind: 'app', kw: ['canva'] },
+  { id: 'capcut', name: 'CapCut', icon: '✂️', kind: 'app', kw: ['capcut'] },
+  { id: 'apple', name: 'Apple / iCloud', icon: '☁️', kind: 'app', kw: ['icloud', 'apple com bill', 'itunes'] },
+  { id: 'netflix', name: 'Netflix', icon: '🎬', kind: 'media', kw: ['netflix'] },
+  { id: 'spotify', name: 'Spotify', icon: '🎧', kind: 'media', kw: ['spotify'] },
+  { id: 'youtube', name: 'YouTube Premium', icon: '▶️', kind: 'media', kw: ['youtube premium', 'youtube'] },
+];
+export function matchService(desc) {
+  const padded = ' ' + norm(desc) + ' ';
+  let best = null;
+  for (const sv of SUB_SERVICES) for (const k of sv.kw) if (padded.includes(' ' + k + ' ') && (!best || k.length > best.len)) best = { sv, len: k.length };
+  return best ? best.sv : null;
+}
 
 // Từ khóa đã bỏ dấu, chữ thường. Từ khóa dài hơn được ưu tiên (vd "grabfood" thắng "grab").
 const KEYWORDS = {
   food: ['tocotoco', 'mixue', 'phe la', 'pizza 4p', 'the pizza company', 'manwah', 'pho 24', 'kingfoodmart', 'satra', 'winmart plus', 'cooky', 'loship', 'bun cha', 'com ga', 'banh cuon', 'quan nhau', 'bia', 'tra chanh', 'an vat', 'di cho', 'grabfood', 'grab food', 'shopeefood', 'shopee food', 'baemin', 'gofood', 'befood', 'be food', 'highlands', 'highland coffee', 'phuc long', 'starbucks', 'the coffee house', 'katinat', 'cong caphe', 'trung nguyen', 'cafe', 'coffee', 'ca phe', 'tra sua', 'gong cha', 'koi the', 'kfc', 'lotteria', 'jollibee', 'mcdonald', 'mcdonalds', 'pizza', 'dominos', 'texas chicken', 'popeyes', 'pho', 'bun bo', 'com tam', 'banh mi', 'nha hang', 'restaurant', 'quan an', 'an trua', 'an toi', 'an sang', 'bakery', 'tous les jours', 'paris baguette', 'bach hoa xanh', 'winmart', 'coopmart', 'co op', 'coop food', 'vinmart', 'lotte mart', 'aeon', 'emart', 'big c', 'go mart', 'circle k', 'familymart', 'gs25', 'ministop', '7 eleven', '7eleven', 'kichi', 'haidilao', 'gogi', 'sushi', 'bbq', 'lau', 'dimsum', 'boulangerie', 'carrefour', 'monoprix', 'franprix', 'leclerc', 'auchan', 'lidl', 'intermarche', 'supermarche', 'epicerie', 'brasserie', 'uber eats', 'deliveroo', 'grocery', 'supermarket'],
   transport: ['bike', 'xe om', 'grabexpress', 'giao hang', 'ahamove', 'lalamove', 'ghtk', 'giao hang tiet kiem', 'viettel post', 'j t express', 'xang', 'rua xe', 'sua xe', 'bao duong', 'grab', 'grabcar', 'grabbike', 'be group', 'xanh sm', 'gsm', 'gojek', 'taxi', 'mai linh', 'vinasun', 'uber', 'petrolimex', 'xang dau', 'do xang', 'pvoil', 'cua hang xang', 'vetc', 'epass', 'thu phi', 'gui xe', 'parking', 'vexere', 'futa', 'phuong trang', 'metro', 'xe buyt', 'sncf', 'ratp', 'navigo', 'essence', 'total energies', 'peage', 'bolt', 'lyft'],
   shopping: ['shopee', 'lazada', 'tiki', 'tiktok shop', 'sendo', 'amazon', 'uniqlo', 'zara', 'h m', 'the gioi di dong', 'tgdd', 'dien may xanh', 'fpt shop', 'cellphones', 'hoang ha mobile', 'nguyen kim', 'ikea', 'decathlon', 'muji', 'miniso', 'daiso', 'canifa', 'routine', 'yody', 'aliexpress', 'temu', 'fnac', 'darty', 'mua sam', 'shop', 'store'],
-  bills: ['icloud', 'google one', 'google storage', 'apple com bill', 'thue bao', 'goi cuoc', 'data 4g', 'nap the', 'mytv', 'fpt play box', 'tien dien thoai', 'tien mang', 'phi gui xe thang', 'evn', 'dien luc', 'tien dien', 'sawaco', 'cap nuoc', 'tien nuoc', 'nuoc sach', 'vnpt', 'viettel', 'mobifone', 'vinaphone', 'fpt telecom', 'internet', 'cuoc di dong', 'nap tien dien thoai', 'hoa don', 'thanh toan hoa don', 'truyen hinh', 'vtvcab', 'k plus', 'phi quan ly', 'chung cu', 'edf', 'engie', 'orange', 'free mobile', 'sfr', 'bouygues', 'facture', 'electricity', 'water bill', 'utility'],
-  fun: ['chatgpt', 'openai', 'canva', 'capcut', 'tinder', 'bumble', 'gym', 'yoga', 'boi loi', 'bida', 'bowling', 've xem phim', 'galaxy play', 'nhaccuatui', 'zing mp3', 'netflix', 'spotify', 'youtube premium', 'youtube', 'apple music', 'cgv', 'galaxy cinema', 'lotte cinema', 'bhd', 'beta cinemas', 'cinestar', 'steam', 'playstation', 'nintendo', 'garena', 'ticketbox', 'karaoke', 'disney', 'fpt play', 'vieon', 'cinema', 'concert', 'game', 'xbox', 'canal plus', 'deezer'],
+  bills: ['thue bao', 'goi cuoc', 'data 4g', 'nap the', 'mytv', 'fpt play box', 'tien dien thoai', 'tien mang', 'phi gui xe thang', 'evn', 'dien luc', 'tien dien', 'sawaco', 'cap nuoc', 'tien nuoc', 'nuoc sach', 'vnpt', 'viettel', 'mobifone', 'vinaphone', 'fpt telecom', 'internet', 'cuoc di dong', 'nap tien dien thoai', 'hoa don', 'thanh toan hoa don', 'truyen hinh', 'vtvcab', 'k plus', 'phi quan ly', 'chung cu', 'edf', 'engie', 'orange', 'free mobile', 'sfr', 'bouygues', 'facture', 'electricity', 'water bill', 'utility'],
+  fun: ['tinder', 'bumble', 'gym', 'yoga', 'boi loi', 'bida', 'bowling', 've xem phim', 'galaxy play', 'nhaccuatui', 'zing mp3', 'netflix', 'spotify', 'youtube premium', 'youtube', 'apple music', 'cgv', 'galaxy cinema', 'lotte cinema', 'bhd', 'beta cinemas', 'cinestar', 'steam', 'playstation', 'nintendo', 'garena', 'ticketbox', 'karaoke', 'disney', 'fpt play', 'vieon', 'cinema', 'concert', 'game', 'xbox', 'canal plus', 'deezer'],
   family: ['cho me', 'gui me', 'bieu me', 'cho bo', 'gui bo', 'bieu bo', 'cho ba', 'gui ba', 'cho ba me', 'gui ba me', 'bieu ong ba', 'cho ong ba', 'gui gia dinh', 'gia dinh', 'cho con', 'gui con', 'tien tieu vat', 'maman', 'papa', 'famille', 'mom', 'dad', 'cho vo', 'cho chong', 'gui vo', 'gui chong'],
   invest: ['chung khoan', 'ssi', 'vndirect', 'tcbs', 'vps', 'mbs', 'hsc', 'vcbs', 'fmarket', 'dragon capital', 'vinacapital', 'ccq', 'chung chi quy', 'gui tiet kiem', 'tiet kiem', 'tich luy', 'mo so tiet kiem', 'dau tu', 'vang sjc', 'mua vang', 'savings', 'invest', 'investment', 'livret', 'assurance vie', 'boursorama', 'etoro'],
   income: ['luong', 'tra luong', 'salary', 'payroll', 'thuong', 'bonus', 'hoan tien', 'refund', 'cashback', 'lai tien gui', 'tra lai', 'interest', 'salaire', 'remboursement', 'loi tuc', 'co tuc', 'dividend'],
@@ -56,6 +85,7 @@ const KEYWORDS = {
   debtpay: ['spaylater', 'shopee paylater', 'spay later', 'tra gop', 'home credit', 'fe credit', 'kredivo', 'fundiin', 'tra no vay', 'tra no khoan vay', 'mcredit', 'loan repayment', 'echeance pret'],
   self: ['chuyen tien noi bo', 'tu tai khoan cua toi', 'own account', 'between accounts', 'virement interne', 'tat toan', 'thanh toan the tin dung', 'tt the tin dung', 'thanh toan du no the', 'tra no the tin dung', 'tra the tin dung', 'credit card payment', 'card payment received', 'payment received', 'payment thank you', 'remboursement carte'],
   wallet: ['nap tien vi', 'nap vi', 'nap tien momo', 'nap momo', 'nap tien zalopay', 'nap zalopay', 'nap shopeepay', 'nap tien shopeepay', 'nap tien vnpay', 'top up', 'topup', 'nap tien dien tu'],
+  subs: ['anthropic', 'claude ai', 'claude', 'deepseek', 'suno', 'suno ai', 'openai', 'chatgpt', 'gemini', 'google one', 'google storage', 'midjourney', 'perplexity', 'cursor', 'anysphere', 'github', 'copilot', 'grok', 'elevenlabs', 'notion', 'canva', 'capcut', 'icloud', 'apple com bill', 'itunes'],
   transfer: ['chuyen tien', 'chuyen khoan', 'ck', 'transfer', 'ibft', 'napas', 'virement', 'qr', 'momo', 'zalopay', 'vnpay', 'paypal'],
 };
 

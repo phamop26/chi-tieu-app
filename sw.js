@@ -1,11 +1,11 @@
 // Service worker: cho app chạy khi không có mạng + nhận file được chia sẻ (Android).
 // Không gửi bất kỳ dữ liệu nào đi đâu.
-const VERSION = 'v1.5.0';
+const VERSION = 'v1.6.0';
 const SHELL = `shell-${VERSION}`;
 const LIBS = 'libs-v1';
 const SHELL_FILES = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/boot.js', 'diag.html', 'js/app.js', 'js/i18n.js', 'js/i18n-fin.js', 'js/finance.js', 'js/i18n-v6.js', 'js/i18n-v7.js', 'js/report.js', 'js/ocr.js', 'js/db.js', 'js/parse.js', 'js/classify.js', 'js/insights.js', 'js/lock.js', 'js/sample.js',
+  'js/boot.js', 'diag.html', 'js/app.js', 'js/i18n.js', 'js/i18n-fin.js', 'js/finance.js', 'js/i18n-v6.js', 'js/i18n-v7.js', 'js/report.js', 'js/i18n-v8.js', 'js/subs.js', 'js/ocr.js', 'js/db.js', 'js/parse.js', 'js/classify.js', 'js/insights.js', 'js/lock.js', 'js/sample.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 const LIB_FILES = [
